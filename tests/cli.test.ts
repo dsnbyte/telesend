@@ -64,6 +64,7 @@ describe("CLI", () => {
     const cli = await setup();
     expect(await cli.invoke([])).toBe(0);
     expect(cli.output[0]).toContain("Usage:");
+    expect(cli.output[0]).toContain("telesend msg|message");
     expect(cli.output[0]).toContain("rich-message");
     expect(await cli.invoke(["unknown"])).toBe(1);
     expect(cli.errors.at(-1)).toBe("Error: Unknown command: unknown");
@@ -99,7 +100,7 @@ describe("CLI", () => {
     for (const operation of MESSAGE_CATALOG) {
       expect(
         await cli.invoke([
-          "send",
+          "msg",
           operation.type,
           "ops",
           "--data",
@@ -115,7 +116,9 @@ describe("CLI", () => {
     roots.push(root);
     const path = join(root, "report.txt");
     await Bun.write(path, "report");
-    expect(await cli.invoke(["send", "document", "ops", path, "--caption", "Report"])).toBe(0);
+    expect(await cli.invoke(["message", "document", "ops", path, "--caption", "Report"])).toBe(0);
+    expect(await cli.invoke(["send", "document", "ops", path])).toBe(1);
+    expect(cli.errors.at(-1)).toBe("Error: Unknown command: send");
   });
 
   test("dispatches REST and MCP modes without stdout noise", async () => {

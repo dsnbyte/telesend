@@ -44,8 +44,9 @@ export async function runCli(
       case "alias":
         aliasCommand(args.slice(1), services, io);
         return 0;
-      case "send":
-        await sendCommand(args.slice(1), services, io);
+      case "msg":
+      case "message":
+        await messageCommand(args.slice(1), services, io);
         return 0;
       case "serve":
         await serveCommand(args.slice(1), services);
@@ -132,7 +133,7 @@ function aliasCommand(args: string[], services: CliServices, io: CliIo): void {
   }
 }
 
-async function sendCommand(args: string[], services: CliServices, io: CliIo): Promise<void> {
+async function messageCommand(args: string[], services: CliServices, io: CliIo): Promise<void> {
   const type = required(args[0], "Message type is required");
   const operation = getCatalogOperation(type);
   const to = required(args[1], "Recipient alias or chat ID is required");
@@ -187,7 +188,7 @@ Usage:
   telesend bot add|list|default|remove
   telesend alias add <name> <chat-id> [--thread-id <id>]
   telesend alias list|update|remove
-  telesend send <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>]
+  telesend msg|message <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>]
   telesend serve [--host <host>] [--port <port>]
   telesend mcp [--config <path>] [--allow-path <path> ...]
 

@@ -44,18 +44,21 @@ telesend alias update ops --name incidents --chat-id -1001234567890 --thread-id 
 telesend alias remove incidents
 ```
 
-An explicit `--thread-id` on a send overrides the thread stored by the alias.
+An explicit `--thread-id` on a message overrides the thread stored by the alias.
 
 ## Send from the CLI
 
+Use `telesend msg` (or the alternative `telesend message`):
+
 ```sh
-telesend send text ops "Deployment complete"
-telesend send text ops "Using another bot" --bot alerts_bot --thread-id 42
-telesend send photo ops ./chart.png --caption "Daily chart"
-telesend send photo ops https://example.com/chart.png
-telesend send document ops file_id:BAACAgQAAxkBAAIB
-telesend send location ops --data '{"latitude":-6.2,"longitude":106.8}'
-telesend send media-group ops --data @album.json
+telesend msg text ops "Deployment complete"
+telesend msg text ops "Using another bot" --bot alerts_bot --thread-id 42
+telesend msg photo ops ./chart.png --caption "Daily chart"
+telesend msg photo ops https://example.com/chart.png
+telesend msg document ops file_id:BAACAgQAAxkBAAIB
+telesend msg location ops --data '{"latitude":-6.2,"longitude":106.8}'
+telesend msg media-group ops --data @album.json
+telesend message text ops "Alternative command syntax"
 ```
 
 A media positional value is interpreted as a local path, except values beginning with `http://`, `https://`, or `file_id:`. Complex operations use `--data` with an inline JSON object or `@file`.
