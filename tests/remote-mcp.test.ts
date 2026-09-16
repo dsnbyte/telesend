@@ -8,7 +8,11 @@ import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
 import { createApplication } from "../src/app.ts";
 import { oauthTesting, TelesendOAuth } from "../src/mcp/oauth.ts";
 import { OAuthRepository } from "../src/mcp/oauth-repository.ts";
-import { createRemoteMcpHandler, startRemoteMcpServer } from "../src/mcp/remote-server.ts";
+import {
+  createRemoteMcpHandler,
+  DEFAULT_REMOTE_MCP_PORT,
+  startRemoteMcpServer,
+} from "../src/mcp/remote-server.ts";
 import type { Fetch } from "../src/telegram/client.ts";
 
 const databases: Database[] = [];
@@ -77,6 +81,7 @@ describe("remote MCP HTTP", () => {
     const unauthorized = await handler.fetch(new Request("https://local/mcp", { method: "POST" }));
     expect(unauthorized.status).toBe(401);
     expect(unauthorized.headers.get("www-authenticate")).toContain("resource_metadata");
+    expect(unauthorized.headers.get("www-authenticate")).not.toContain("scope=");
 
     const response = await handler.fetch(
       mcpRequest({
@@ -228,7 +233,7 @@ describe("remote MCP HTTP", () => {
         },
       },
     );
-    expect(starts).toEqual([{ hostname: "127.0.0.1" }]);
+    expect(starts).toEqual([{ hostname: "127.0.0.1", port: DEFAULT_REMOTE_MCP_PORT }]);
     expect(logs[0]).toContain("http://127.0.0.1:4321/");
     expect(logs[0]).toContain("https://mcp.example.com/mcp");
   });

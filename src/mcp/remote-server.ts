@@ -12,6 +12,7 @@ import { loadRemoteMcpConfig, type RemoteMcpConfig } from "./remote-config.ts";
 import { createRemoteMcpServer } from "./server.ts";
 
 const MAX_MCP_REQUEST_BYTES = 1024 * 1024;
+export const DEFAULT_REMOTE_MCP_PORT = 3100;
 
 export interface RemoteMcpOptions {
   hostname?: string;
@@ -43,7 +44,7 @@ export function startRemoteMcpServer(
   const handler = createRemoteMcpHandler(app, oauth, config);
   const server = (runtime.serve ?? ((value) => Bun.serve(value)))({
     hostname: options.hostname ?? "127.0.0.1",
-    ...(options.port === undefined ? {} : { port: options.port }),
+    port: options.port ?? DEFAULT_REMOTE_MCP_PORT,
     fetch: handler.fetch,
   });
   (runtime.log ?? console.log)(
@@ -63,7 +64,6 @@ export function createRemoteMcpHandler(
   );
   const gate = requireBearerAuth({
     verifier: oauth,
-    requiredScopes: ["mcp:read"],
     resourceMetadataUrl: new URL("/.well-known/oauth-protected-resource/mcp", config.publicUrl)
       .href,
   });
