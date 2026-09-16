@@ -147,7 +147,7 @@ Requests are limited to 52 MiB. Put an HTTPS reverse proxy or tunnel in front of
 
 ## MCP
 
-Telesend serves MCP over stdio and exposes one `send_<type>` tool per message type, such as `send_text`, `send_photo`, and `send_media_group`. It does not expose bot/alias administration or a generic Telegram method tool.
+Telesend serves MCP over stdio. It exposes `list_aliases`, `list_bots`, and one `send_<type>` tool per message type (`send_text`, `send_photo`, `send_media_group`, …). It does not expose bot/alias administration or a generic Telegram method tool.
 
 Example MCP client configuration:
 

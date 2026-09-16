@@ -57,14 +57,56 @@ async function setup(fetcher: Fetch) {
 }
 
 describe("MCP interface", () => {
-  test("lists only one content-specific tool per catalog entry", async () => {
+  test("advertises instructions, distinct send tools, and lookup tools", async () => {
     const { client } = await setup(okFetch);
+    expect(client.initializeResult.serverInfo?.name).toBe("telesend");
+    expect(client.initializeResult.instructions).toContain("send_text");
+    expect(client.initializeResult.instructions).toContain("list_aliases");
+
     const result = await client.request("tools/list", {});
-    const tools = (result as { tools: Array<{ name: string }> }).tools;
-    expect(tools.map(({ name }) => name)).toEqual(
-      MESSAGE_CATALOG.map(({ type }) => toolName(type)),
+    const tools = (
+      result as {
+        tools: Array<{
+          name: string;
+          description?: string;
+          inputSchema?: {
+            properties?: {
+              payload?: {
+                properties?: Record<string, { type?: string; properties?: { source?: unknown } }>;
+              };
+            };
+          };
+        }>;
+      }
+    ).tools;
+    const sendTools = tools.filter(({ name }) => name.startsWith("send_"));
+    expect(tools.map(({ name }) => name)).toEqual([
+      "list_aliases",
+      "list_bots",
+      ...MESSAGE_CATALOG.map(({ type }) => toolName(type)),
+    ]);
+    expect(tools.some(({ name }) => name === "telegram_method")).toBeFalse();
+
+    const descriptions = sendTools.map(({ description }) => description);
+    expect(new Set(descriptions).size).toBe(descriptions.length);
+    expect(tools.find(({ name }) => name === "send_text")?.description).toContain(
+      "plain Telegram text",
     );
-    expect(tools.some(({ name }) => /bot|alias|telegram_method/.test(name))).toBeFalse();
+    expect(tools.find(({ name }) => name === "send_message_draft")?.description).toContain("draft");
+
+    expect(
+      tools.find(({ name }) => name === "send_text")?.inputSchema?.properties?.payload?.properties
+        ?.text?.type,
+    ).toBe("string");
+    expect(sourceEnum(tools.find(({ name }) => name === "send_photo")?.inputSchema)).toEqual([
+      "path",
+      "url",
+      "file_id",
+    ]);
+    expect(sourceEnum(tools.find(({ name }) => name === "send_video_note")?.inputSchema)).toEqual([
+      "path",
+      "file_id",
+    ]);
   });
 
   test("writes only newline-delimited protocol frames to stdout", async () => {
@@ -130,6 +172,30 @@ describe("MCP interface", () => {
     expect(second.isError).not.toBeTrue();
     expect(requests.map(({ body }) => body.message_thread_id)).toEqual([42, 99]);
     expect(requests.map(({ method }) => method)).toEqual(["sendMessage", "sendMessage"]);
+  });
+
+  test("lists aliases and bots without secrets", async () => {
+    const token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef";
+    const { app, client } = await setup(okFetch);
+    await app.bots.register(token);
+    app.aliases.create({ name: "didin", chatId: "212711973" });
+
+    const aliases = await client.call("list_aliases", {});
+    const bots = await client.call("list_bots", {});
+    expect(aliases.structuredContent).toEqual({
+      aliases: [{ name: "didin", chatId: "212711973", messageThreadId: null }],
+    });
+    expect(bots.structuredContent).toEqual({
+      bots: [
+        {
+          telegramId: "1",
+          name: "default",
+          username: "default_bot",
+          isDefault: true,
+        },
+      ],
+    });
+    expect(JSON.stringify(bots)).not.toContain(token);
   });
 
   test("returns safe tool errors", async () => {
@@ -229,6 +295,26 @@ test("authorizeMcpPayload canonicalizes nested paths", async () => {
 });
 
 const okFetch = (async () => Response.json({ ok: true, result: { message_id: 1 } })) as Fetch;
+
+function sourceEnum(
+  schema:
+    | {
+        properties?: {
+          payload?: { properties?: Record<string, { properties?: { source?: unknown } }> };
+        };
+      }
+    | undefined,
+) {
+  const source = Object.values(schema?.properties?.payload?.properties ?? {})[0]?.properties
+    ?.source;
+  if (source && typeof source === "object" && "enum" in source) {
+    return (source as { enum: string[] }).enum;
+  }
+  if (source && typeof source === "object" && "anyOf" in source) {
+    return (source as { anyOf: Array<{ const?: string }> }).anyOf.map((entry) => entry.const);
+  }
+  return source;
+}
 
 function replaceMedia(value: unknown, source: Record<string, unknown>): Record<string, unknown> {
   return replace(value, source) as Record<string, unknown>;

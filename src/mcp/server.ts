@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import type { Application } from "../app.ts";
 import { AppError, toAppError } from "../core/errors.ts";
-import { MESSAGE_CATALOG } from "../telegram/catalog.ts";
+import { MESSAGE_CATALOG, type MessageOperation, type MessageType } from "../telegram/catalog.ts";
 import { loadMcpConfig } from "./config.ts";
 import { FilePolicy } from "./file-policy.ts";
 
@@ -12,23 +12,79 @@ export interface McpOptions {
   configPath?: string;
 }
 
+const SERVER_INSTRUCTIONS = [
+  "Send Telegram messages through registered bots.",
+  "Use send_text for ordinary chat; other send_* tools match their content type.",
+  "to: chat ID, @username, or an alias from list_aliases.",
+  "Omit bot to use the default from list_bots.",
+].join("\n");
+
+const MCP_DESCRIPTIONS = {
+  text: "Send a plain Telegram text message.",
+  "message-draft": "Send a streaming text draft, not a regular chat.",
+  "rich-message": "Send a rich/structured Telegram message.",
+  "rich-message-draft": "Send a streaming rich-message draft.",
+  animation: "Send a Telegram GIF or animation.",
+  audio: "Send a Telegram audio track.",
+  document: "Send a Telegram document or file.",
+  "live-photo": "Send a Telegram live photo.",
+  photo: "Send a Telegram photo.",
+  sticker: "Send a Telegram sticker.",
+  video: "Send a Telegram video.",
+  "video-note": "Send a round Telegram video note.",
+  voice: "Send a Telegram voice note.",
+  "paid-media": "Send paid Telegram media for stars.",
+  "media-group": "Send a Telegram media album.",
+  location: "Send a geographic location.",
+  venue: "Send a venue with location, title, and address.",
+  contact: "Send a phone contact.",
+  poll: "Send a Telegram poll.",
+  checklist: "Send a Telegram business checklist.",
+  dice: "Send a Telegram dice animation.",
+  invoice: "Send a Telegram invoice.",
+  game: "Send an HTML5 Telegram game.",
+} as const satisfies Record<MessageType, string>;
+
 export function createMcpServer(app: Application, filePolicy: FilePolicy): McpServer {
-  const server = new McpServer({ name: "telesend", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "telesend", version: "0.1.0" },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
+
+  server.registerTool(
+    "list_aliases",
+    {
+      title: "List aliases",
+      description: "List recipient aliases that can be used as `to`.",
+      inputSchema: z.object({}),
+    },
+    () => jsonResult({ aliases: app.aliases.list() }),
+  );
+  server.registerTool(
+    "list_bots",
+    {
+      title: "List bots",
+      description: "List registered bots and which one is the default.",
+      inputSchema: z.object({}),
+    },
+    () => jsonResult({ bots: app.bots.list() }),
+  );
 
   for (const operation of MESSAGE_CATALOG) {
-    const requiredPayload = Object.fromEntries(
-      operation.requiredFields.map((field) => [field, z.unknown()]),
-    );
     server.registerTool(
       toolName(operation.type),
       {
         title: `Send ${operation.description}`,
-        description: `Send a Telegram ${operation.type} message`,
+        description: MCP_DESCRIPTIONS[operation.type as keyof typeof MCP_DESCRIPTIONS],
         inputSchema: z.object({
-          to: z.string().min(1).describe("Chat ID, @username, or configured alias"),
-          bot: z.string().min(1).optional().describe("Bot username; uses the default when omitted"),
+          to: z.string().min(1).describe("Chat ID, @username, or alias from list_aliases"),
+          bot: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("Bot username; default from list_bots if omitted"),
           messageThreadId: z.number().int().positive().optional(),
-          payload: z.object(requiredPayload).loose(),
+          payload: payloadSchema(operation),
         }),
       },
       async ({ to, bot, messageThreadId, payload }) => {
@@ -37,23 +93,17 @@ export function createMcpServer(app: Application, filePolicy: FilePolicy): McpSe
             string,
             unknown
           >;
-          const result = await app.delivery.send({
-            type: operation.type,
-            to,
-            ...(bot === undefined ? {} : { bot }),
-            ...(messageThreadId === undefined ? {} : { messageThreadId }),
-            payload: safePayload,
-          });
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(result) }],
-            structuredContent: result as unknown as Record<string, unknown>,
-          };
+          return jsonResult(
+            (await app.delivery.send({
+              type: operation.type,
+              to,
+              ...(bot === undefined ? {} : { bot }),
+              ...(messageThreadId === undefined ? {} : { messageThreadId }),
+              payload: safePayload,
+            })) as unknown as Record<string, unknown>,
+          );
         } catch (error) {
-          const safe = toAppError(error);
-          return {
-            isError: true,
-            content: [{ type: "text" as const, text: `${safe.code}: ${safe.message}` }],
-          };
+          return toolError(error);
         }
       },
     );
@@ -108,6 +158,78 @@ export async function authorizeMcpPayload(value: unknown, policy: FilePolicy): P
 
 export function toolName(type: string): string {
   return `send_${type.replaceAll("-", "_")}`;
+}
+
+function payloadSchema(operation: MessageOperation) {
+  return z
+    .object(
+      Object.fromEntries(
+        operation.requiredFields.map((field) => [field, payloadField(operation, field)]),
+      ),
+    )
+    .loose();
+}
+
+function payloadField(operation: MessageOperation, field: string) {
+  if (operation.mediaFields.includes(field)) {
+    if (field === "media") {
+      return z.array(
+        z
+          .object({
+            type: z.string().min(1),
+            media: mcpMediaSource(operation.allowUrl),
+          })
+          .loose(),
+      );
+    }
+    return mcpMediaSource(operation.allowUrl);
+  }
+  switch (field) {
+    case "draft_id":
+    case "star_count":
+      return z.number().int().positive();
+    case "latitude":
+    case "longitude":
+      return z.number();
+    case "options":
+      return z.array(z.object({ text: z.string().min(1) }).loose());
+    case "prices":
+      return z.array(
+        z
+          .object({
+            label: z.string().min(1),
+            amount: z.number().int(),
+          })
+          .loose(),
+      );
+    case "rich_message":
+    case "checklist":
+      return z.object({}).loose();
+    default:
+      return z.string().min(1);
+  }
+}
+
+function mcpMediaSource(allowUrl: boolean) {
+  return z.object({
+    source: allowUrl ? z.enum(["path", "url", "file_id"]) : z.enum(["path", "file_id"]),
+    value: z.string().min(1),
+  });
+}
+
+function jsonResult(data: Record<string, unknown>) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(data) }],
+    structuredContent: data,
+  };
+}
+
+function toolError(error: unknown) {
+  const safe = toAppError(error);
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: `${safe.code}: ${safe.message}` }],
+  };
 }
 
 function isMcpSource(value: unknown): value is "file_id" | "path" | "url" {

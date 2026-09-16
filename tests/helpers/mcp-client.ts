@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/server";
 
 export class TestMcpClient {
+  initializeResult: { instructions?: string; serverInfo?: { name: string } } = {};
   private id = 0;
   private readonly pending = new Map<
     number,
@@ -22,11 +23,11 @@ export class TestMcpClient {
     const client = new TestMcpClient(clientTransport);
     await clientTransport.start();
     await server.connect(serverTransport);
-    await client.request("initialize", {
+    client.initializeResult = (await client.request("initialize", {
       protocolVersion: LATEST_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: "telesend-test", version: "1" },
-    });
+    })) as TestMcpClient["initializeResult"];
     await clientTransport.send({ jsonrpc: "2.0", method: "notifications/initialized" });
     return client;
   }

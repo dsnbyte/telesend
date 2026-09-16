@@ -93,6 +93,10 @@ test("CLI, REST, and MCP share bots, aliases, threads, media, and safe failures"
       protectedPaths: [databasePath],
     });
     const mcp = await TestMcpClient.connect(createMcpServer(app, policy));
+    const aliases = await mcp.call("list_aliases", {});
+    expect(aliases.structuredContent).toEqual({
+      aliases: [{ name: "ops", chatId: "-100123", messageThreadId: 42 }],
+    });
     const mediaResult = await mcp.call("send_document", {
       to: "ops",
       payload: { document: { source: "path", value: document } },
