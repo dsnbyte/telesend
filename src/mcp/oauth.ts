@@ -298,16 +298,102 @@ function consentPage(request: AuthorizationRequest): string {
     code_challenge: request.codeChallenge,
     code_challenge_method: "S256",
   };
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Authorize Telesend</title></head><body><main><h1>Authorize ${escapeHtml(request.clientName)}</h1><p>Requested access: ${escapeHtml(request.scopes.join(", "))}</p><form method="post" action="/authorize">${Object.entries(
-    hidden,
-  )
-    .map(
-      ([name, value]) =>
-        `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`,
-    )
-    .join(
-      "",
-    )}<label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></main></body></html>`;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Authorize Telesend</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 1.5rem;
+        background: #f6f8fc;
+        color: #172033;
+      }
+      main {
+        width: min(100%, 26rem);
+        padding: 2rem;
+        background: #fff;
+        border: 1px solid #dfe5ef;
+        border-radius: 1rem;
+        box-shadow: 0 1rem 2.5rem rgb(30 47 80 / 10%);
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.375rem;
+        line-height: 1.35;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 0.625rem 0 1.5rem;
+        color: #5a667c;
+        font-size: 0.9375rem;
+        line-height: 1.5;
+      }
+      form { display: grid; gap: 1rem; }
+      label {
+        display: grid;
+        gap: 0.5rem;
+        color: #35425a;
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        min-height: 2.75rem;
+        padding: 0.625rem 0.75rem;
+        border: 1px solid #c9d2e1;
+        border-radius: 0.625rem;
+        color: inherit;
+        font: inherit;
+        outline: none;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+      }
+      input:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgb(37 99 235 / 15%);
+      }
+      button {
+        min-height: 2.75rem;
+        border: 0;
+        border-radius: 0.625rem;
+        background: #2563eb;
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 650;
+        transition: background 150ms ease, transform 150ms ease;
+      }
+      button:hover { background: #1d4ed8; }
+      button:active { transform: translateY(1px); }
+      button:focus-visible { outline: 3px solid rgb(37 99 235 / 30%); outline-offset: 3px; }
+      @media (max-width: 30rem) { main { padding: 1.5rem; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Authorize ${escapeHtml(request.clientName)}</h1>
+      <p>Requested access: ${escapeHtml(request.scopes.join(", "))}</p>
+      <form method="post" action="/authorize">${Object.entries(hidden)
+        .map(
+          ([name, value]) =>
+            `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`,
+        )
+        .join(
+          "",
+        )}<label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form>
+    </main>
+  </body>
+</html>`;
 }
 
 function tokenResponse(accessToken: string, refreshToken: string, scopes: string[]): Response {
