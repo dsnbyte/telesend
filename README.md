@@ -53,6 +53,8 @@ Use `telesend msg` (or the alternative `telesend message`):
 ```sh
 telesend msg text ops "Deployment complete"
 telesend msg text ops "Using another bot" --bot alerts_bot --thread-id 42
+telesend msg text ops "*Deployment complete*" --parse-mode=md --silent
+telesend msg text ops "<b>Deployment complete</b>" --parse-mode=html
 telesend msg photo ops ./chart.png --caption "Daily chart"
 telesend msg photo ops https://example.com/chart.png
 telesend msg document ops file_id:BAACAgQAAxkBAAIB
@@ -62,6 +64,8 @@ telesend message text ops "Alternative command syntax"
 ```
 
 A media positional value is interpreted as a local path, except values beginning with `http://`, `https://`, or `file_id:`. Complex operations use `--data` with an inline JSON object or `@file`.
+
+Use `--parse-mode=<html|markdown|md>` with `text` messages to set Telegram's `parse_mode`; `markdown` and `md` use `MarkdownV2`. Use `--silent` with any message type to disable the notification. These flags override the corresponding fields in `--data`.
 
 Supported message types:
 

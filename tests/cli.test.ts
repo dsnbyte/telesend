@@ -121,6 +121,53 @@ describe("CLI", () => {
     expect(cli.errors.at(-1)).toBe("Error: Unknown command: send");
   });
 
+  test("applies text format and silent flags after --data", async () => {
+    const cli = await setup();
+    await cli.invoke(["bot", "add"]);
+    expect(
+      await cli.invoke([
+        "msg",
+        "text",
+        "-100",
+        "--data",
+        '{"text":"Hello","parse_mode":"HTML","disable_notification":false}',
+        "--parse-mode=md",
+        "--silent",
+      ]),
+    ).toBe(0);
+    const result = JSON.parse(cli.output.at(-1) as string) as {
+      result: { echoed: Record<string, unknown> };
+    };
+    expect(result.result.echoed.parse_mode).toBe("MarkdownV2");
+    expect(result.result.echoed.disable_notification).toBe(true);
+  });
+
+  test("maps supported text parse modes", async () => {
+    const cli = await setup();
+    await cli.invoke(["bot", "add"]);
+    for (const [flag, parseMode] of [
+      ["--parse-mode=html", "HTML"],
+      ["--parse-mode=markdown", "MarkdownV2"],
+      ["--parse-mode=md", "MarkdownV2"],
+    ] as const) {
+      expect(await cli.invoke(["msg", "text", "-100", "Hello", flag])).toBe(0);
+      const result = JSON.parse(cli.output.at(-1) as string) as {
+        result: { echoed: Record<string, unknown> };
+      };
+      expect(result.result.echoed.parse_mode).toBe(parseMode);
+    }
+  });
+
+  test("rejects invalid or unsupported text parse modes", async () => {
+    const cli = await setup();
+    expect(await cli.invoke(["msg", "text", "-100", "Hello", "--parse-mode=plain"])).toBe(1);
+    expect(cli.errors.at(-1)).toBe("Error: --parse-mode must be html, markdown, or md");
+    expect(await cli.invoke(["msg", "text", "-100", "Hello", "--parse-mode"])).toBe(1);
+    expect(cli.errors.at(-1)).toBe("Error: Use --parse-mode=<html|markdown|md>");
+    expect(await cli.invoke(["msg", "photo", "-100", "file.jpg", "--parse-mode=html"])).toBe(1);
+    expect(cli.errors.at(-1)).toBe("Error: --parse-mode is only supported for text messages");
+  });
+
   test("dispatches REST and MCP modes without stdout noise", async () => {
     const cli = await setup();
     await cli.invoke(["serve", "--port", "9000"]);

@@ -15,12 +15,13 @@ export interface McpOptions {
 const SERVER_INSTRUCTIONS = [
   "Send Telegram messages through registered bots.",
   "Use send_text for ordinary chat; other send_* tools match their content type.",
+  "Every send_* tool accepts payload.disable_notification: true for silent delivery.",
   "to: chat ID, @username, or an alias from list_aliases.",
   "Omit bot to use the default from list_bots.",
 ].join("\n");
 
 const MCP_DESCRIPTIONS = {
-  text: "Send a plain Telegram text message.",
+  text: 'Send a Telegram text message. In payload, use parse_mode: "HTML" or "MarkdownV2" for formatting.',
   "message-draft": "Send a streaming text draft, not a regular chat.",
   "rich-message": "Send a rich/structured Telegram message.",
   "rich-message-draft": "Send a streaming rich-message draft.",

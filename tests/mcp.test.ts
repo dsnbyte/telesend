@@ -62,6 +62,7 @@ describe("MCP interface", () => {
     expect(client.initializeResult.serverInfo?.name).toBe("telesend");
     expect(client.initializeResult.instructions).toContain("send_text");
     expect(client.initializeResult.instructions).toContain("list_aliases");
+    expect(client.initializeResult.instructions).toContain("payload.disable_notification: true");
 
     const result = await client.request("tools/list", {});
     const tools = (
@@ -90,7 +91,7 @@ describe("MCP interface", () => {
     const descriptions = sendTools.map(({ description }) => description);
     expect(new Set(descriptions).size).toBe(descriptions.length);
     expect(tools.find(({ name }) => name === "send_text")?.description).toContain(
-      "plain Telegram text",
+      'parse_mode: "HTML" or "MarkdownV2"',
     );
     expect(tools.find(({ name }) => name === "send_message_draft")?.description).toContain("draft");
 

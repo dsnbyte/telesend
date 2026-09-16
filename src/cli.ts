@@ -137,7 +137,11 @@ async function messageCommand(args: string[], services: CliServices, io: CliIo):
   const type = required(args[0], "Message type is required");
   const operation = getCatalogOperation(type);
   const to = required(args[1], "Recipient alias or chat ID is required");
-  const { options, positionals } = splitOptions(args.slice(2));
+  const { options, positionals, flags } = splitMessageOptions(args.slice(2));
+  const parseMode = options["parse-mode"] && parseTextParseMode(options["parse-mode"]);
+  if (parseMode && type !== "text") {
+    throw new AppError("validation", "--parse-mode is only supported for text messages");
+  }
   let payload: Record<string, unknown>;
   if (options.data) {
     payload = await parseJsonInput(options.data);
@@ -151,6 +155,8 @@ async function messageCommand(args: string[], services: CliServices, io: CliIo):
     throw new AppError("validation", `Use --data '<json>' to provide fields for ${type}`);
   }
   if (options.caption) payload.caption = options.caption;
+  if (parseMode) payload.parse_mode = parseMode;
+  if (flags.silent) payload.disable_notification = true;
 
   const result = await services.delivery.send({
     type,
@@ -188,7 +194,7 @@ Usage:
   telesend bot add|list|default|remove
   telesend alias add <name> <chat-id> [--thread-id <id>]
   telesend alias list|update|remove
-  telesend msg|message <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>]
+  telesend msg|message <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
   telesend serve [--host <host>] [--port <port>]
   telesend mcp [--config <path>] [--allow-path <path> ...]
 
@@ -238,6 +244,48 @@ function splitOptions(args: string[]): {
     index += 1;
   }
   return { options, positionals };
+}
+
+function splitMessageOptions(args: string[]): {
+  options: Record<string, string>;
+  positionals: string[];
+  flags: Record<"silent", boolean>;
+} {
+  const options: Record<string, string> = {};
+  const positionals: string[] = [];
+  const flags = { silent: false };
+  for (let index = 0; index < args.length; index += 1) {
+    const current = args[index] as string;
+    if (!current.startsWith("--")) {
+      positionals.push(current);
+      continue;
+    }
+    if (current === "--silent") {
+      flags.silent = true;
+      continue;
+    }
+    if (current.startsWith("--parse-mode=")) {
+      const value = current.slice("--parse-mode=".length);
+      if (!value) throw new AppError("validation", "Use --parse-mode=<html|markdown|md>");
+      options["parse-mode"] = value;
+      continue;
+    }
+    if (current === "--parse-mode")
+      throw new AppError("validation", "Use --parse-mode=<html|markdown|md>");
+    const name = current.slice(2);
+    const value = args[index + 1];
+    if (!value || value.startsWith("--"))
+      throw new AppError("validation", `${current} requires a value`);
+    options[name] = value;
+    index += 1;
+  }
+  return { options, positionals, flags };
+}
+
+function parseTextParseMode(value: string): "HTML" | "MarkdownV2" {
+  if (value === "html") return "HTML";
+  if (value === "markdown" || value === "md") return "MarkdownV2";
+  throw new AppError("validation", "--parse-mode must be html, markdown, or md");
 }
 
 function parseOptions(args: string[]): Record<string, string> {
