@@ -1,0 +1,27 @@
+{
+  "name": "telesend",
+  "version": "0.1.0",
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2"
+  },
+  "bin": {
+    "telesend": "./src/index.ts"
+  },
+  "description": "Send Telegram bot messages from CLI, MCP, and REST",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "check": "bun run typecheck && bun run test && bun run lint",
+    "build": "bun build --compile --minify --outfile dist/telesend src/index.ts"
+  },
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0"
+  }
+}

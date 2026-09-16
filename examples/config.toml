@@ -1,0 +1,10 @@
+# Extra roots available to MCP local-file tools. The process working directory
+# is already allowed. Paths must be absolute; ~ is supported.
+[mcp.files]
+allow_paths = ["~/Documents/telesend"]
+
+# These patterns may narrowly re-enable files denied only by built-in defaults.
+include = ["generated/**/*.json"]
+
+# User excludes always win over includes.
+exclude = ["**/private/**", "**/*-secret.*"]
