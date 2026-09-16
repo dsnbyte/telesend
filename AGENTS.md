@@ -1,55 +1,34 @@
 # Telesend - Agent Guidelines
 
-Self-hosted Bun application for sending Telegram bot messages via CLI, stdio MCP server, and authenticated REST API.
+Send Telegram bot messages via CLI, stdio MCP server, and authenticated REST API. Self-hosted Bun application.
 
-## Development Commands
+## Commands
 
-Always use Bun (do not use npm/yarn/pnpm/node):
+Always use Bun. Run `bun run check` after every modification.
 
-- Full verification: `bun run check` (runs typecheck, test, and lint)
-- Typecheck: `bun run typecheck` (`tsc --noEmit`)
-- Run tests: `bun test` (or `bun test tests/<file>.test.ts`)
-- Lint & format check: `bun run lint` (`biome check .`)
-- Auto-format: `bun run format` (`biome format --write .`)
-- Build binary: `bun run build`
+- `bun run check` — full verification (typecheck + test + lint)
+- `bun test tests/<file>.test.ts` — single test file
+- `bun run format` — auto-format
 
-Always verify changes with `bun run check` before concluding a task.
+## Security Rules
 
-## Architecture & Security Invariants
+These are hard constraints — never weaken them without explicit approval.
 
-- **Secrets & Token Redaction**:
-  - Never expose Telegram bot tokens or `TELESEND_API_KEY` in stdout, stderr, logs, or error responses.
-  - Always wrap/sanitize error messages using `redactSecrets()` or `toAppError()`.
-  - Enforce owner-only permissions (`0700` for directories, `0600` for DB files) via `ensurePrivateDirectory`.
-- **MCP Stdio Protocol**:
-  - Never print arbitrary text to `stdout` during MCP mode. Standard output is reserved strictly for newline-delimited JSON-RPC messages. Use `stderr` or structured loggers if logging is necessary.
-  - All local file access in MCP tools must pass `authorizeMcpPayload` / `FilePolicy` checks (fail-closed, canonical paths).
-- **REST API Boundaries**:
-  - Always require `x-api-key` header; fail fast at startup if `TELESEND_API_KEY` is missing.
-  - Reject local filesystem paths in REST JSON payloads. Server filesystem access is forbidden via REST; file uploads must use multipart form data.
-- **Database & State**:
-  - Use `bun:sqlite` with WAL mode and `PRAGMA foreign_keys = ON`.
-  - Manage schema changes strictly via versioned `MIGRATIONS` in `src/db/database.ts`.
-  - In unit tests, always use in-memory databases (`databasePath: ":memory:"`) and ensure they are closed (`db.close(false)`) in teardowns.
-- **Dependencies & APIs**:
-  - Keep dependencies minimal (only `@modelcontextprotocol/server` in production).
-  - Use native Bun APIs (`bun:sqlite`, `Bun.argv`, `Response`, `fetch`) instead of adding external libraries.
+- **No secret leakage.** Bot tokens and API keys must never appear in stdout, stderr, logs, or error responses. Use the existing redaction/error utilities.
+- **MCP stdout is sacred.** In MCP mode, stdout is exclusively for JSON-RPC. All other output goes to stderr.
+- **MCP file access is fail-closed.** All local file operations in MCP tools must pass authorization checks before proceeding.
+- **REST has no filesystem access.** Reject local paths in REST JSON payloads. File uploads use multipart only.
+- **REST requires authentication.** The `x-api-key` header is mandatory; fail fast at startup if the key env var is unset.
+- **Private file permissions.** Directories `0700`, DB files `0600`.
 
-## Workflow Behavior
+## Conventions
 
-### Think Before Coding
-- State assumptions explicitly; ask if uncertain.
-- Present multiple interpretations instead of silently picking one.
-- Flag simpler alternatives and push back when warranted.
-- Stop and name the confusion if something is unclear.
+- **One production dependency** (`@modelcontextprotocol/server`). Prefer native Bun APIs over new packages.
+- **Database migrations are versioned.** Never modify existing migrations; append new ones.
+- **Tests use in-memory databases.** Always `:memory:` path and `db.close(false)` in teardown.
 
-### Simplicity First
-- Write the minimum code that solves the problem — no speculative features, abstractions, configurability, or error handling for impossible cases.
-- Rewrite shorter wherever possible.
-- Test: would a senior engineer call this overcomplicated?
+## Workflow
 
-### Surgical Changes
-- Touch only what the task requires — no unrelated refactors, style edits, or "improvements."
-- Match existing style even when you'd do it differently.
-- Test: every changed line must trace to the request.
-- Run `bun run check` after every modification.
+- Touch only what the task requires — no unrelated refactors or style edits.
+- Match existing patterns and style.
+- Ask when uncertain; flag simpler alternatives.
