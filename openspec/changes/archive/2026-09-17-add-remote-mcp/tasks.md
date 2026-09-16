@@ -24,4 +24,4 @@
 
 - [x] 4.1 Document environment configuration, TLS reverse-proxy deployment, session-header forwarding, OAuth redirect/client setup, grant revocation, and ChatGPT/Claude.ai registration without placing secrets in URLs; verify all documented command names and URLs match the CLI.
 - [x] 4.2 Add an end-to-end remote MCP authorization and delivery test using a temporary database and mocked Telegram fetch, including rejected server paths and revoked grants; verify `bun test` passes.
-- [ ] 4.3 Run `bun run check`, inspect the final diff for unintended local stdio or REST changes, and manually validate the documented ChatGPT and Claude.ai connector setup against a public HTTPS deployment.
+- [x] 4.3 Run `bun run check`, inspect the final diff for unintended local stdio or REST changes, and manually validate the documented ChatGPT and Claude.ai connector setup against a public HTTPS deployment.
