@@ -14,6 +14,7 @@ export interface CliServices {
   delivery: DeliveryService;
   readSecret?: () => Promise<string>;
   startMcp: (options: { allowPaths: string[]; configPath?: string }) => Promise<void>;
+  startRemoteMcp: (options: { hostname?: string; port?: number }) => Promise<void>;
   startRest: (options: { hostname?: string; port?: number }) => Promise<void>;
 }
 
@@ -53,6 +54,9 @@ export async function runCli(
         return 0;
       case "mcp":
         await mcpCommand(args.slice(1), services);
+        return 0;
+      case "mcp-serve":
+        await remoteMcpCommand(args.slice(1), services);
         return 0;
       default:
         throw new AppError("validation", `Unknown command: ${args[0]}`);
@@ -186,6 +190,14 @@ async function mcpCommand(args: string[], services: CliServices): Promise<void> 
   });
 }
 
+async function remoteMcpCommand(args: string[], services: CliServices): Promise<void> {
+  const options = parseOptions(args);
+  await services.startRemoteMcp({
+    ...(options.host ? { hostname: options.host } : {}),
+    ...(options.port ? { port: parsePositiveInteger(options.port, "port") } : {}),
+  });
+}
+
 function help(): string {
   const types = MESSAGE_CATALOG.map(({ type }) => type).join(", ");
   return `Telesend ${VERSION}
@@ -197,6 +209,7 @@ Usage:
   telesend msg|message <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
   telesend serve [--host <host>] [--port <port>]
   telesend mcp [--config <path>] [--allow-path <path> ...]
+  telesend mcp-serve [--host <host>] [--port <port>]
 
 Message types:
   ${types}`;

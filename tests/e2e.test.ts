@@ -52,6 +52,7 @@ test("CLI, REST, and MCP share bots, aliases, threads, media, and safe failures"
     delivery: app.delivery,
     readSecret: async () => token,
     startMcp: async () => {},
+    startRemoteMcp: async () => {},
     startRest: async () => {},
   });
 

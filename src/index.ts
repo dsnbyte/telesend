@@ -3,6 +3,7 @@
 import { createApplication } from "./app.ts";
 import { runCli } from "./cli.ts";
 import { resolveTelesendPaths } from "./core/paths.ts";
+import { startRemoteMcpServer } from "./mcp/remote-server.ts";
 import { startMcpServer } from "./mcp/server.ts";
 import { startRestServer } from "./rest/server.ts";
 
@@ -13,12 +14,19 @@ const exitCode = await runCli(Bun.argv.slice(2), {
   bots: app.bots,
   delivery: app.delivery,
   startMcp: (options) => startMcpServer(app, options),
+  startRemoteMcp: async (options) => {
+    startRemoteMcpServer(app, options);
+  },
   startRest: async (options) => {
     startRestServer(app, options);
   },
 });
 
-if (!Bun.argv.slice(2).some((argument) => argument === "serve" || argument === "mcp")) {
+if (
+  !Bun.argv
+    .slice(2)
+    .some((argument) => argument === "serve" || argument === "mcp" || argument === "mcp-serve")
+) {
   app.database.close(false);
 }
 process.exitCode = exitCode;

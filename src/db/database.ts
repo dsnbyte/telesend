@@ -26,6 +26,49 @@ const MIGRATIONS = [
       updated_at TEXT NOT NULL
     );
   `,
+  `
+    CREATE TABLE oauth_clients (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      redirect_uris TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE oauth_grants (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+      scopes TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      revoked_at INTEGER NULL
+    );
+
+    CREATE TABLE oauth_authorization_codes (
+      digest TEXT PRIMARY KEY,
+      grant_id TEXT NOT NULL REFERENCES oauth_grants(id) ON DELETE CASCADE,
+      redirect_uri TEXT NOT NULL,
+      code_challenge TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at INTEGER NULL
+    );
+    CREATE INDEX oauth_authorization_codes_expiry ON oauth_authorization_codes(expires_at);
+
+    CREATE TABLE oauth_access_tokens (
+      digest TEXT PRIMARY KEY,
+      grant_id TEXT NOT NULL REFERENCES oauth_grants(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      revoked_at INTEGER NULL
+    );
+    CREATE INDEX oauth_access_tokens_expiry ON oauth_access_tokens(expires_at);
+
+    CREATE TABLE oauth_refresh_tokens (
+      digest TEXT PRIMARY KEY,
+      grant_id TEXT NOT NULL REFERENCES oauth_grants(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      revoked_at INTEGER NULL,
+      replaced_by_digest TEXT NULL
+    );
+    CREATE INDEX oauth_refresh_tokens_expiry ON oauth_refresh_tokens(expires_at);
+  `,
 ] as const;
 
 export async function openDatabase(path: string): Promise<Database> {

@@ -50,6 +50,9 @@ async function setup() {
     startMcp: async () => {
       starts.push("mcp");
     },
+    startRemoteMcp: async () => {
+      starts.push("mcp-serve");
+    },
   };
   const invoke = (args: string[]) =>
     runCli(args, services, {
@@ -65,6 +68,7 @@ describe("CLI", () => {
     expect(await cli.invoke([])).toBe(0);
     expect(cli.output[0]).toContain("Usage:");
     expect(cli.output[0]).toContain("telesend msg|message");
+    expect(cli.output[0]).toContain("telesend mcp-serve");
     expect(cli.output[0]).toContain("rich-message");
     expect(await cli.invoke(["unknown"])).toBe(1);
     expect(cli.errors.at(-1)).toBe("Error: Unknown command: unknown");
@@ -172,7 +176,8 @@ describe("CLI", () => {
     const cli = await setup();
     await cli.invoke(["serve", "--port", "9000"]);
     await cli.invoke(["mcp", "--allow-path", "/tmp", "--allow-path", "/var/tmp"]);
-    expect(cli.starts).toEqual(["rest", "mcp"]);
+    await cli.invoke(["mcp-serve", "--host", "127.0.0.1", "--port", "9001"]);
+    expect(cli.starts).toEqual(["rest", "mcp", "mcp-serve"]);
     expect(cli.output).toHaveLength(0);
   });
 });

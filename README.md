@@ -1,6 +1,6 @@
 # Telesend
 
-Telesend is a self-hosted Bun application for sending Telegram bot messages from a CLI, a stdio MCP server, or an authenticated REST API. Bots, aliases, and defaults are stored in Bun's built-in SQLite database. There is no web UI.
+Telesend is a self-hosted Bun application for sending Telegram bot messages from a CLI, local or remote MCP, and an authenticated REST API. Bots, aliases, OAuth grants, and defaults are stored in Bun's built-in SQLite database. There is no administration web UI.
 
 ## Install
 
@@ -187,9 +187,51 @@ The working directory is allowed by default. Additional roots come from repeatab
 
 Paths are canonicalized before containment checks, so traversal and symlink escapes fail closed. See [the policy reference](docs/mcp-file-policy.md) and [the example configuration](examples/config.toml).
 
+## Remote MCP
+
+Remote MCP is a separate service from the local stdio command and REST API:
+
+- `telesend mcp` communicates over stdio and may use policy-approved local paths.
+- `telesend mcp-serve` exposes Streamable HTTP at `/mcp`, requires OAuth 2.1, and accepts only `url` or `file_id` media sources.
+- `telesend serve` remains the `x-api-key` REST service. Its `TELESEND_API_KEY` is never used by an MCP connector.
+
+Generate a password hash for the owner consent screen without placing the password in command arguments:
+
+```sh
+read -rsp 'Remote MCP owner password: ' TELESEND_MCP_OWNER_PASSWORD
+echo
+export TELESEND_MCP_OWNER_PASSWORD_HASH="$(printf '%s' "$TELESEND_MCP_OWNER_PASSWORD" | bun -e 'console.log(await Bun.password.hash(await Bun.stdin.text()))')"
+unset TELESEND_MCP_OWNER_PASSWORD
+```
+
+Set the public HTTPS origin and start the listener on loopback behind a reverse proxy or tunnel:
+
+```sh
+export TELESEND_MCP_PUBLIC_URL='https://telesend.example.com'
+telesend mcp-serve --host 127.0.0.1 --port 3100
+```
+
+`TELESEND_MCP_PUBLIC_URL` must be an HTTPS origin without a path, query, or embedded credentials. The connector URL is `https://telesend.example.com/mcp`. The same public origin must also route the OAuth endpoints `/authorize`, `/token`, `/register`, `/revoke`, and `/.well-known/*` to this listener.
+
+The reverse proxy must:
+
+- Terminate HTTPS and proxy every remote MCP/OAuth path to the same single Telesend process.
+- Preserve `Authorization`, `Content-Type`, `Accept`, `MCP-Protocol-Version`, and `MCP-Session-Id` headers.
+- Disable request-body, authorization-header, and query-string logging for these routes because they may contain passwords, tokens, or short-lived authorization codes.
+- Keep the plain HTTP listener private. Multi-process or load-balanced remote MCP serving is not supported yet.
+
+Telesend dynamically registers public OAuth clients, requires PKCE S256, and displays an owner-password consent page. Access is granted with `mcp:read` and/or `mcp:send`; discovery-only grants cannot send messages. Disconnect the connector in ChatGPT or Claude.ai to remove its saved credentials. OAuth clients can also revoke a token at `POST /revoke`; revoking either token invalidates the entire associated grant.
+
+To connect ChatGPT, enable developer mode for a workspace that supports custom MCP apps, create a custom app, and enter `https://telesend.example.com/mcp`. Complete the Telesend consent screen when ChatGPT follows OAuth discovery. Delivery tools are advertised as write actions and may require user confirmation.
+
+To connect Claude.ai, open **Settings → Connectors**, add a custom connector with `https://telesend.example.com/mcp`, and complete the same consent screen. No client secret or Telesend REST API key is required because Telesend supports dynamic client registration.
+
+Do not put an access token, password, authorization code, or `TELESEND_API_KEY` in the connector URL.
+
 ## Operations and backup
 
 - Run the REST service as a dedicated unprivileged user and keep its data/config directories owner-only.
+- Run remote MCP as the same dedicated user so it opens the same owner-only database, and keep its owner-password hash in the process supervisor or secret manager.
 - Inject `TELESEND_API_KEY` from the process supervisor or secret manager; do not put it in command arguments.
 - Terminate HTTPS at a trusted reverse proxy and bind Telesend to a private or loopback address.
 - Back up the database with SQLite's online backup command while the service may be running: `sqlite3 telesend.db ".backup telesend-backup.db"`. Copying a live WAL database as one file may produce an inconsistent backup.

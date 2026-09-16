@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { AliasRepository } from "../src/db/alias-repository.ts";
 import { BotRepository } from "../src/db/bot-repository.ts";
 import { openDatabase } from "../src/db/database.ts";
+import { OAuthRepository } from "../src/mcp/oauth-repository.ts";
 
 const databases: Database[] = [];
 const roots: string[] = [];
@@ -30,10 +31,18 @@ describe("database", () => {
     expect(tables.map(({ name }) => name)).toContainAllValues([
       "aliases",
       "bots",
+      "oauth_access_tokens",
+      "oauth_authorization_codes",
+      "oauth_clients",
+      "oauth_grants",
+      "oauth_refresh_tokens",
       "schema_migrations",
     ]);
     expect(database.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
-    expect(database.query("SELECT version FROM schema_migrations").get()).toEqual({ version: 1 });
+    expect(database.query("SELECT version FROM schema_migrations ORDER BY version").all()).toEqual([
+      { version: 1 },
+      { version: 2 },
+    ]);
   });
 
   test("creates an owner-only database", async () => {
@@ -47,6 +56,83 @@ describe("database", () => {
       expect((await stat(join(root, "data"))).mode & 0o777).toBe(0o700);
       expect((await stat(path)).mode & 0o777).toBe(0o600);
     }
+  });
+});
+
+describe("OAuthRepository", () => {
+  test("stores clients and consumes authorization codes once", async () => {
+    const repository = new OAuthRepository(await memory());
+    repository.registerClient(
+      { id: "client", name: "Claude", redirectUris: ["https://claude.ai/callback"] },
+      100,
+    );
+    expect(repository.findClient("client")).toEqual({
+      id: "client",
+      name: "Claude",
+      redirectUris: ["https://claude.ai/callback"],
+    });
+    repository.createGrant({ id: "grant", clientId: "client", scopes: ["mcp:read"] }, 100);
+    repository.storeAuthorizationCode({
+      codeChallenge: "challenge",
+      digest: "code",
+      expiresAt: 200,
+      grantId: "grant",
+      redirectUri: "https://claude.ai/callback",
+    });
+    expect(repository.consumeAuthorizationCode("code", 150)).toMatchObject({
+      clientId: "client",
+      codeChallenge: "challenge",
+      grantId: "grant",
+      scopes: ["mcp:read"],
+    });
+    expect(repository.consumeAuthorizationCode("code", 151)).toBeNull();
+  });
+
+  test("rotates refresh tokens and revokes their grant", async () => {
+    const repository = new OAuthRepository(await memory());
+    repository.registerClient(
+      { id: "client", name: "ChatGPT", redirectUris: ["https://chatgpt.com"] },
+      100,
+    );
+    repository.createGrant(
+      { id: "grant", clientId: "client", scopes: ["mcp:read", "mcp:send"] },
+      100,
+    );
+    repository.storeTokens({
+      accessDigest: "access-one",
+      accessExpiresAt: 200,
+      grantId: "grant",
+      refreshDigest: "refresh-one",
+      refreshExpiresAt: 500,
+    });
+    expect(
+      repository.rotateRefreshToken(
+        "refresh-one",
+        "client",
+        {
+          accessDigest: "access-two",
+          accessExpiresAt: 250,
+          refreshDigest: "refresh-two",
+          refreshExpiresAt: 600,
+        },
+        150,
+      ),
+    ).toMatchObject({ grantId: "grant", scopes: ["mcp:read", "mcp:send"] });
+    expect(
+      repository.rotateRefreshToken(
+        "refresh-one",
+        "client",
+        {
+          accessDigest: "replay",
+          accessExpiresAt: 300,
+          refreshDigest: "replay-refresh",
+          refreshExpiresAt: 700,
+        },
+        151,
+      ),
+    ).toBeNull();
+    expect(repository.revokeGrantByToken("access-two", 160)).toBeTrue();
+    expect(repository.findAccessToken("access-two")?.revokedAt).toBe(160);
   });
 });
 

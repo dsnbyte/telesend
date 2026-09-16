@@ -12,6 +12,13 @@ export interface McpOptions {
   configPath?: string;
 }
 
+interface McpToolPolicy {
+  authorizePayload(value: unknown): Promise<unknown>;
+  canRead: boolean;
+  canSend: boolean;
+  includePaths: boolean;
+}
+
 const SERVER_INSTRUCTIONS = [
   "Send Telegram messages through registered bots.",
   "Use send_text for ordinary chat; other send_* tools match their content type.",
@@ -47,6 +54,24 @@ const MCP_DESCRIPTIONS = {
 } as const satisfies Record<MessageType, string>;
 
 export function createMcpServer(app: Application, filePolicy: FilePolicy): McpServer {
+  return createToolServer(app, {
+    authorizePayload: (value) => authorizeMcpPayload(value, filePolicy),
+    canRead: true,
+    canSend: true,
+    includePaths: true,
+  });
+}
+
+export function createRemoteMcpServer(app: Application, scopes: readonly string[]): McpServer {
+  return createToolServer(app, {
+    authorizePayload: authorizeRemoteMcpPayload,
+    canRead: scopes.includes("mcp:read"),
+    canSend: scopes.includes("mcp:send"),
+    includePaths: false,
+  });
+}
+
+function createToolServer(app: Application, policy: McpToolPolicy): McpServer {
   const server = new McpServer(
     { name: "telesend", version: "0.1.0" },
     { instructions: SERVER_INSTRUCTIONS },
@@ -58,8 +83,12 @@ export function createMcpServer(app: Application, filePolicy: FilePolicy): McpSe
       title: "List aliases",
       description: "List recipient aliases that can be used as `to`.",
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    () => jsonResult({ aliases: app.aliases.list() }),
+    () =>
+      policy.canRead
+        ? jsonResult({ aliases: app.aliases.list() })
+        : toolError(new AppError("unauthorized", "MCP scope mcp:read is required")),
   );
   server.registerTool(
     "list_bots",
@@ -67,8 +96,12 @@ export function createMcpServer(app: Application, filePolicy: FilePolicy): McpSe
       title: "List bots",
       description: "List registered bots and which one is the default.",
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    () => jsonResult({ bots: app.bots.list() }),
+    () =>
+      policy.canRead
+        ? jsonResult({ bots: app.bots.list() })
+        : toolError(new AppError("unauthorized", "MCP scope mcp:read is required")),
   );
 
   for (const operation of MESSAGE_CATALOG) {
@@ -77,6 +110,12 @@ export function createMcpServer(app: Application, filePolicy: FilePolicy): McpSe
       {
         title: `Send ${operation.description}`,
         description: MCP_DESCRIPTIONS[operation.type as keyof typeof MCP_DESCRIPTIONS],
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
         inputSchema: z.object({
           to: z.string().min(1).describe("Chat ID, @username, or alias from list_aliases"),
           bot: z
@@ -85,15 +124,15 @@ export function createMcpServer(app: Application, filePolicy: FilePolicy): McpSe
             .optional()
             .describe("Bot username; default from list_bots if omitted"),
           messageThreadId: z.number().int().positive().optional(),
-          payload: payloadSchema(operation),
+          payload: payloadSchema(operation, policy.includePaths),
         }),
       },
       async ({ to, bot, messageThreadId, payload }) => {
         try {
-          const safePayload = (await authorizeMcpPayload(payload, filePolicy)) as Record<
-            string,
-            unknown
-          >;
+          if (!policy.canSend) {
+            throw new AppError("unauthorized", "MCP scope mcp:send is required");
+          }
+          const safePayload = (await policy.authorizePayload(payload)) as Record<string, unknown>;
           return jsonResult(
             (await app.delivery.send({
               type: operation.type,
@@ -157,33 +196,64 @@ export async function authorizeMcpPayload(value: unknown, policy: FilePolicy): P
   );
 }
 
+export async function authorizeRemoteMcpPayload(value: unknown): Promise<unknown> {
+  if (Array.isArray(value)) return Promise.all(value.map(authorizeRemoteMcpPayload));
+  if (!value || typeof value !== "object") return value;
+
+  const record = value as Record<string, unknown>;
+  if ("source" in record) {
+    if (!isMcpSource(record.source)) {
+      throw new AppError("validation", "MCP media source must be url or file_id");
+    }
+    if (typeof record.value !== "string" || record.value.length === 0) {
+      throw new AppError("validation", `MCP media source ${record.source} requires a value`);
+    }
+    if (record.source === "path") {
+      throw new AppError("filesystem_policy", "Remote MCP cannot use server filesystem paths");
+    }
+    return { source: record.source, value: record.value };
+  }
+
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(record).map(async ([key, item]) => [
+        key,
+        await authorizeRemoteMcpPayload(item),
+      ]),
+    ),
+  );
+}
+
 export function toolName(type: string): string {
   return `send_${type.replaceAll("-", "_")}`;
 }
 
-function payloadSchema(operation: MessageOperation) {
+function payloadSchema(operation: MessageOperation, includePaths: boolean) {
   return z
     .object(
       Object.fromEntries(
-        operation.requiredFields.map((field) => [field, payloadField(operation, field)]),
+        operation.requiredFields.map((field) => [
+          field,
+          payloadField(operation, field, includePaths),
+        ]),
       ),
     )
     .loose();
 }
 
-function payloadField(operation: MessageOperation, field: string) {
+function payloadField(operation: MessageOperation, field: string, includePaths: boolean) {
   if (operation.mediaFields.includes(field)) {
     if (field === "media") {
       return z.array(
         z
           .object({
             type: z.string().min(1),
-            media: mcpMediaSource(operation.allowUrl),
+            media: mcpMediaSource(operation.allowUrl, includePaths),
           })
           .loose(),
       );
     }
-    return mcpMediaSource(operation.allowUrl);
+    return mcpMediaSource(operation.allowUrl, includePaths);
   }
   switch (field) {
     case "draft_id":
@@ -211,9 +281,14 @@ function payloadField(operation: MessageOperation, field: string) {
   }
 }
 
-function mcpMediaSource(allowUrl: boolean) {
+function mcpMediaSource(allowUrl: boolean, includePaths: boolean) {
+  const sources = [
+    ...(includePaths ? (["path"] as const) : []),
+    ...(allowUrl ? (["url"] as const) : []),
+    "file_id" as const,
+  ];
   return z.object({
-    source: allowUrl ? z.enum(["path", "url", "file_id"]) : z.enum(["path", "file_id"]),
+    source: z.enum(sources),
     value: z.string().min(1),
   });
 }

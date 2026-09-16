@@ -7,7 +7,13 @@ import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { type Application, createApplication } from "../src/app.ts";
 import { FilePolicy } from "../src/mcp/file-policy.ts";
-import { authorizeMcpPayload, createMcpServer, toolName } from "../src/mcp/server.ts";
+import {
+  authorizeMcpPayload,
+  authorizeRemoteMcpPayload,
+  createMcpServer,
+  createRemoteMcpServer,
+  toolName,
+} from "../src/mcp/server.ts";
 import { MESSAGE_CATALOG } from "../src/telegram/catalog.ts";
 import type { Fetch } from "../src/telegram/client.ts";
 import { TestMcpClient } from "./helpers/mcp-client.ts";
@@ -108,6 +114,72 @@ describe("MCP interface", () => {
       "path",
       "file_id",
     ]);
+  });
+
+  test("annotates tools and exposes a remote-safe media schema", async () => {
+    const app = await createApplication({ databasePath: ":memory:", fetcher: okFetch });
+    applications.push(app);
+    const client = await TestMcpClient.connect(
+      createRemoteMcpServer(app, ["mcp:read", "mcp:send"]),
+    );
+    const result = await client.request("tools/list", {});
+    const tools = (
+      result as {
+        tools: Array<{
+          name: string;
+          annotations?: { readOnlyHint?: boolean; idempotentHint?: boolean };
+          inputSchema?: {
+            properties?: {
+              payload?: {
+                properties?: Record<string, { properties?: { source?: unknown } }>;
+              };
+            };
+          };
+        }>;
+      }
+    ).tools;
+    expect(tools.find(({ name }) => name === "list_aliases")?.annotations?.readOnlyHint).toBeTrue();
+    expect(tools.find(({ name }) => name === "send_text")?.annotations).toMatchObject({
+      readOnlyHint: false,
+      idempotentHint: false,
+    });
+    expect(sourceEnum(tools.find(({ name }) => name === "send_photo")?.inputSchema)).toEqual([
+      "url",
+      "file_id",
+    ]);
+    expect(sourceEnum(tools.find(({ name }) => name === "send_video_note")?.inputSchema)).toEqual([
+      "file_id",
+    ]);
+  });
+
+  test("enforces remote scopes before reading or delivering", async () => {
+    let deliveries = 0;
+    const app = await createApplication({
+      databasePath: ":memory:",
+      fetcher: (async (url) => {
+        if (String(url).endsWith("/getMe")) {
+          return Response.json({
+            ok: true,
+            result: { id: 1, is_bot: true, first_name: "bot", username: "bot" },
+          });
+        }
+        deliveries++;
+        return Response.json({ ok: true, result: { message_id: 1 } });
+      }) as Fetch,
+    });
+    applications.push(app);
+    await app.bots.register("token");
+    const client = await TestMcpClient.connect(createRemoteMcpServer(app, ["mcp:read"]));
+    expect((await client.call("list_bots", {})).isError).not.toBeTrue();
+    expect(
+      (
+        await client.call("send_text", {
+          to: "1",
+          payload: { text: "denied" },
+        })
+      ).isError,
+    ).toBeTrue();
+    expect(deliveries).toBe(0);
   });
 
   test("writes only newline-delimited protocol frames to stdout", async () => {
@@ -293,6 +365,21 @@ test("authorizeMcpPayload canonicalizes nested paths", async () => {
   expect(
     await authorizeMcpPayload({ media: [{ media: { source: "path", value: path } }] }, policy),
   ).toEqual({ media: [{ media: { source: "path", value: path } }] });
+});
+
+test("authorizeRemoteMcpPayload rejects nested paths and preserves remote sources", async () => {
+  await expect(
+    authorizeRemoteMcpPayload({ media: [{ media: { source: "path", value: "/tmp/file" } }] }),
+  ).rejects.toThrow("Remote MCP cannot use server filesystem paths");
+  expect(
+    await authorizeRemoteMcpPayload({
+      photo: { source: "url", value: "https://example.com/photo.jpg" },
+      thumb: { source: "file_id", value: "telegram-id" },
+    }),
+  ).toEqual({
+    photo: { source: "url", value: "https://example.com/photo.jpg" },
+    thumb: { source: "file_id", value: "telegram-id" },
+  });
 });
 
 const okFetch = (async () => Response.json({ ok: true, result: { message_id: 1 } })) as Fetch;
