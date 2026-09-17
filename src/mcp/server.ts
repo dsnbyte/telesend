@@ -25,9 +25,9 @@ interface McpToolPolicy {
 const SERVER_INSTRUCTIONS = [
   "Send Telegram messages through registered bots.",
   "Pick the send_* tool that matches the content: send_text, send_rich_message, send_media (photo/video/audio/document/sticker/animation/...), send_media_group, send_location (add title+address for a venue), send_interactive (poll/checklist/dice/game), send_invoice, or send_contact.",
-  "list_aliases and list_bots are lookup helpers.",
+  "list_aliases and list_bots are lookup helpers. Each alias has type group or private (negative chat IDs are groups, including supergroups and channels).",
   "Every send_* tool accepts payload.disable_notification: true for silent delivery.",
-  "to: chat ID, @username, or alias from list_aliases. Omit bot to use the default.",
+  "to: chat ID, @username, or alias from list_aliases. Omit bot to use the default. To message every group, list_aliases then send to each alias whose type is group.",
   "Call get_telegram_parameter_doc only for advanced Telegram options not present in the standard tool parameters.",
 ].join("\n");
 
@@ -152,7 +152,8 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
     "list_aliases",
     {
       title: "List aliases",
-      description: "List recipient aliases that can be used as `to`.",
+      description:
+        "List recipient aliases that can be used as `to`. Each alias includes type (`group` or `private`); filter by type to send to all groups.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },

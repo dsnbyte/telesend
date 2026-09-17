@@ -13,8 +13,11 @@ export interface SafeBot {
   isDefault: boolean;
 }
 
+export type AliasType = "group" | "private";
+
 export interface RecipientAlias {
   name: string;
   chatId: string;
   messageThreadId: number | null;
+  type: AliasType;
 }

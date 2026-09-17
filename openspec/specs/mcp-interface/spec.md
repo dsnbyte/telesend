@@ -17,6 +17,10 @@ The MCP server SHALL run over standard input and output and SHALL expose categor
 - **WHEN** an MCP client calls `get_telegram_parameter_doc` with a supported method or type
 - **THEN** the server returns advanced parameter descriptions without requiring full schema bloat in delivery tools
 
+#### Scenario: List aliases with type
+- **WHEN** an MCP client calls `list_aliases`
+- **THEN** each alias includes `type` `group` or `private` so the client can send to every group alias
+
 #### Scenario: Attempt administration through MCP
 - **WHEN** an MCP client requests bot or alias mutation
 - **THEN** no such tool is available

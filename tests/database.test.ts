@@ -192,11 +192,13 @@ describe("AliasRepository", () => {
       name: "ops",
       chatId: "-100123",
       messageThreadId: 42,
+      type: "group",
     });
     expect(repository.update("ops", { name: "releases", chatId: "-100456" })).toEqual({
       name: "releases",
       chatId: "-100456",
       messageThreadId: null,
+      type: "group",
     });
     expect(repository.list()).toHaveLength(1);
     repository.remove("releases");
@@ -207,10 +209,28 @@ describe("AliasRepository", () => {
     const repository = new AliasRepository(await memory());
     repository.create({ name: "ops", chatId: "-100123" });
     expect(() => repository.create({ name: "OPS", chatId: "2" })).toThrow("already exists");
-    expect(() => repository.create({ name: "bad alias", chatId: "2" })).toThrow("Alias must");
+    expect(() => repository.create({ name: "bad!", chatId: "2" })).toThrow("Alias must");
     expect(() => repository.create({ name: "valid", chatId: "chat" })).toThrow("Chat ID");
     expect(() => repository.create({ name: "valid", chatId: "2", messageThreadId: 0 })).toThrow(
       "positive integer",
     );
+  });
+
+  test("allows spaced names and classifies group versus private chats", async () => {
+    const repository = new AliasRepository(await memory());
+    expect(repository.create({ name: "  Team  Chat  ", chatId: "-1002603419700" })).toEqual({
+      name: "Team Chat",
+      chatId: "-1002603419700",
+      messageThreadId: null,
+      type: "group",
+    });
+    expect(repository.create({ name: "didin", chatId: "212711973" })).toEqual({
+      name: "didin",
+      chatId: "212711973",
+      messageThreadId: null,
+      type: "private",
+    });
+    expect(repository.find("team chat")).toMatchObject({ name: "Team Chat", type: "group" });
+    expect(repository.find("Team  Chat")).toMatchObject({ name: "Team Chat", type: "group" });
   });
 });

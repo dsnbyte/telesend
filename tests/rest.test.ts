@@ -154,6 +154,18 @@ describe("REST resources", () => {
       headers: { "content-type": "application/json" },
     });
     expect(response.status).toBe(201);
+    expect((await response.json()).data.type).toBe("group");
+    response = await api.request("/aliases", {
+      method: "POST",
+      body: JSON.stringify({ name: "Team Chat", chatId: "212711973" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).data).toMatchObject({
+      name: "Team Chat",
+      type: "private",
+    });
+    expect((await api.request("/aliases/Team%20Chat", { method: "DELETE" })).status).toBe(200);
     response = await api.request("/aliases/ops", {
       method: "PATCH",
       body: JSON.stringify({ name: "releases", messageThreadId: 99 }),

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { AppError } from "../core/errors.ts";
-import type { RecipientAlias } from "../core/result.ts";
+import type { AliasType, RecipientAlias } from "../core/result.ts";
 
 interface AliasRow {
   name: string;
@@ -14,17 +14,21 @@ export interface AliasInput {
   messageThreadId?: number | null;
 }
 
-const ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const ALIAS_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._ -]*[A-Za-z0-9._-])?$/;
 const CHAT_ID_PATTERN = /^-?\d+$/;
 
+function normalizeAliasName(name: string): string {
+  return name.trim().replace(/ +/g, " ");
+}
+
 function validate(input: AliasInput): Required<AliasInput> {
-  const name = input.name.trim();
+  const name = normalizeAliasName(input.name);
   const chatId = input.chatId.trim();
   const messageThreadId = input.messageThreadId ?? null;
   if (!ALIAS_PATTERN.test(name)) {
     throw new AppError(
       "validation",
-      "Alias must contain only letters, numbers, dot, dash, or underscore",
+      "Alias must contain only letters, numbers, spaces, dot, dash, or underscore",
     );
   }
   if (!CHAT_ID_PATTERN.test(chatId)) {
@@ -39,8 +43,20 @@ function validate(input: AliasInput): Required<AliasInput> {
   return { name, chatId, messageThreadId };
 }
 
+function aliasType(chatId: string): AliasType {
+  return chatId.startsWith("-") ? "group" : "private";
+}
+
+function toAlias(value: Required<AliasInput>): RecipientAlias {
+  return { ...value, type: aliasType(value.chatId) };
+}
+
 function fromRow(row: AliasRow): RecipientAlias {
-  return { name: row.name, chatId: row.chat_id, messageThreadId: row.message_thread_id };
+  return toAlias({
+    name: row.name,
+    chatId: row.chat_id,
+    messageThreadId: row.message_thread_id,
+  });
 }
 
 export class AliasRepository {
@@ -61,7 +77,7 @@ export class AliasRepository {
       }
       throw error;
     }
-    return value;
+    return toAlias(value);
   }
 
   list(): RecipientAlias[] {
@@ -74,12 +90,13 @@ export class AliasRepository {
   find(name: string): RecipientAlias | null {
     const row = this.database
       .query("SELECT name, chat_id, message_thread_id FROM aliases WHERE name = ? COLLATE NOCASE")
-      .get(name.trim()) as AliasRow | null;
+      .get(normalizeAliasName(name)) as AliasRow | null;
     return row ? fromRow(row) : null;
   }
 
   update(currentName: string, input: AliasInput): RecipientAlias {
-    if (!this.find(currentName)) {
+    const existing = this.find(currentName);
+    if (!existing) {
       throw new AppError("not_found", `Alias "${currentName}" was not found`);
     }
     const value = validate(input);
@@ -87,7 +104,7 @@ export class AliasRepository {
       this.database.run(
         `UPDATE aliases SET name = ?, chat_id = ?, message_thread_id = ?, updated_at = ?
          WHERE name = ? COLLATE NOCASE`,
-        [value.name, value.chatId, value.messageThreadId, new Date().toISOString(), currentName],
+        [value.name, value.chatId, value.messageThreadId, new Date().toISOString(), existing.name],
       );
     } catch (error) {
       if (String(error).includes("UNIQUE constraint failed")) {
@@ -95,13 +112,13 @@ export class AliasRepository {
       }
       throw error;
     }
-    return value;
+    return toAlias(value);
   }
 
   remove(name: string): RecipientAlias {
     const existing = this.find(name);
     if (!existing) throw new AppError("not_found", `Alias "${name}" was not found`);
-    this.database.run("DELETE FROM aliases WHERE name = ? COLLATE NOCASE", [name.trim()]);
+    this.database.run("DELETE FROM aliases WHERE name = ? COLLATE NOCASE", [existing.name]);
     return existing;
   }
 }

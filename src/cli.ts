@@ -409,6 +409,7 @@ function formatAlias(alias: RecipientAlias, action: "Added" | "Updated" | "Remov
   return [
     `${action} alias ${alias.name}`,
     formatFields([
+      ["Type", alias.type],
       ["Chat ID", alias.chatId],
       ["Thread", alias.messageThreadId == null ? "-" : String(alias.messageThreadId)],
     ]),
@@ -418,9 +419,10 @@ function formatAlias(alias: RecipientAlias, action: "Added" | "Updated" | "Remov
 function formatAliasList(aliases: RecipientAlias[]): string {
   if (aliases.length === 0) return "No aliases registered.";
   return formatTable(
-    ["NAME", "CHAT ID", "THREAD"],
+    ["NAME", "TYPE", "CHAT ID", "THREAD"],
     aliases.map((alias) => [
       alias.name,
+      alias.type,
       alias.chatId,
       alias.messageThreadId == null ? "-" : String(alias.messageThreadId),
     ]),

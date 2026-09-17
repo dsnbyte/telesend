@@ -96,7 +96,7 @@ test("CLI, REST, and MCP share bots, aliases, threads, media, and safe failures"
     const mcp = await TestMcpClient.connect(createMcpServer(app, policy));
     const aliases = await mcp.call("list_aliases", {});
     expect(aliases.structuredContent).toEqual({
-      aliases: [{ name: "ops", chatId: "-100123", messageThreadId: 42 }],
+      aliases: [{ name: "ops", chatId: "-100123", messageThreadId: 42, type: "group" }],
     });
     const mediaResult = await mcp.call("send_media", {
       to: "ops",

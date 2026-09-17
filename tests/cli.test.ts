@@ -112,18 +112,30 @@ describe("CLI", () => {
     expect(cli.output.at(-1)).toContain("Thread   42");
     await cli.invoke(["alias", "list"]);
     expect(cli.output.at(-1)).toContain("NAME");
+    expect(cli.output.at(-1)).toContain("TYPE");
     expect(cli.output.at(-1)).toContain("ops");
+    expect(cli.output.at(-1)).toContain("group");
     expect(cli.output.at(-1)).toContain("-100");
     await cli.invoke(["alias", "update", "ops", "--name", "releases", "--thread-id", "99"]);
     expect(cli.app.aliases.find("releases")).toEqual({
       name: "releases",
       chatId: "-100",
       messageThreadId: 99,
+      type: "group",
     });
     expect(cli.output.at(-1)).toContain("Updated alias releases");
     await cli.invoke(["alias", "remove", "releases"]);
     expect(cli.output.at(-1)).toContain("Removed alias releases");
     expect(cli.app.aliases.list()).toHaveLength(0);
+    await cli.invoke(["alias", "add", "Team Chat", "212711973"]);
+    expect(cli.app.aliases.find("Team Chat")).toEqual({
+      name: "Team Chat",
+      chatId: "212711973",
+      messageThreadId: null,
+      type: "private",
+    });
+    expect(cli.output.at(-1)).toContain("Added alias Team Chat");
+    expect(cli.output.at(-1)).toContain("private");
   });
 
   test("sends every catalog type and local files through explicit commands", async () => {
@@ -230,6 +242,7 @@ describe("CLI", () => {
       name: "ops",
       chatId: "-100",
       messageThreadId: 42,
+      type: "group",
     });
     expect(await cli.invoke(["msg", "text", "ops", "Hello", "--json"])).toBe(0);
     const sent = JSON.parse(cli.output.at(-1) as string) as {

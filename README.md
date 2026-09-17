@@ -25,6 +25,8 @@ Once connected via MCP, you can talk to your AI naturally:
 
 > "List all my Telegram aliases."
 
+> "Send this update to every group alias."
+
 > "Send a markdown message to incidents saying the database is back up."
 
 > "Send the file /home/me/reports/status.pdf to the ops channel."
@@ -138,16 +140,17 @@ telesend bot remove old_bot
 
 ### Managing Aliases
 
-Aliases map a short name to a chat ID and optionally a forum topic:
+Aliases map a short name to a chat ID and optionally a forum topic. Names may include spaces (quote them in the shell). Each alias is classified as `group` (negative chat ID, including supergroups and channels) or `private`:
 
 ```sh
 telesend alias add ops -1001234567890 --thread-id 42
+telesend alias add "Team Chat" -1002603419700
 telesend alias list
 telesend alias update ops --name incidents --chat-id -1001234567890 --thread-id 99
 telesend alias remove incidents
 ```
 
-An explicit `--thread-id` on a message overrides the thread stored by the alias.
+An explicit `--thread-id` on a message overrides the thread stored by the alias. MCP `list_aliases` includes `type` so an assistant can send to every group alias.
 
 ### Supported Message Types
 

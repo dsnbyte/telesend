@@ -7,11 +7,23 @@ Defines reusable recipient aliases that identify Telegram chats and optionally t
 ## Requirements
 
 ### Requirement: Manage recipient aliases
-The system SHALL allow operators to create, list, update, and delete uniquely named aliases containing a Telegram chat ID and an optional positive integer `message_thread_id`.
+The system SHALL allow operators to create, list, update, and delete uniquely named aliases containing a Telegram chat ID and an optional positive integer `message_thread_id`. Alias names SHALL allow letters, numbers, spaces, dots, dashes, and underscores. Each alias representation SHALL include a derived `type` of `group` when the chat ID is negative and `private` otherwise.
 
 #### Scenario: Create a chat alias
 - **WHEN** an operator provides an unused alias and a valid chat ID
 - **THEN** the system stores the alias with no message thread
+
+#### Scenario: Accept an alias name with spaces
+- **WHEN** an operator creates an alias whose name contains letters separated by spaces
+- **THEN** the system stores the trimmed name and later resolves it as a destination
+
+#### Scenario: Classify a group alias
+- **WHEN** an operator stores an alias whose chat ID is a negative integer
+- **THEN** the alias representation includes `type` `group`
+
+#### Scenario: Classify a private alias
+- **WHEN** an operator stores an alias whose chat ID is a non-negative integer
+- **THEN** the alias representation includes `type` `private`
 
 #### Scenario: Create a topic alias
 - **WHEN** an operator provides an unused alias, a valid chat ID, and a valid message thread ID

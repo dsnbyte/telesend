@@ -72,6 +72,7 @@ describe("MCP interface", () => {
     );
     expect(client.initializeResult.instructions).toContain("send_text");
     expect(client.initializeResult.instructions).toContain("list_aliases");
+    expect(client.initializeResult.instructions).toContain("type group or private");
     expect(client.initializeResult.instructions).toContain("payload.disable_notification: true");
     expect(client.initializeResult.instructions).toContain(
       "Call get_telegram_parameter_doc only for advanced Telegram options",
@@ -101,6 +102,9 @@ describe("MCP interface", () => {
       }
     ).tools;
     const sendTools = tools.filter(({ name }) => name.startsWith("send_"));
+    expect(tools.find(({ name }) => name === "list_aliases")?.description).toContain(
+      "type (`group` or `private`)",
+    );
     expect(tools.map(({ name }) => name)).toEqual([
       "list_aliases",
       "list_bots",
@@ -280,11 +284,15 @@ describe("MCP interface", () => {
     const { app, client } = await setup(okFetch);
     await app.bots.register(token);
     app.aliases.create({ name: "didin", chatId: "212711973" });
+    app.aliases.create({ name: "Team Chat", chatId: "-1002603419700" });
 
     const aliases = await client.call("list_aliases", {});
     const bots = await client.call("list_bots", {});
     expect(aliases.structuredContent).toEqual({
-      aliases: [{ name: "didin", chatId: "212711973", messageThreadId: null }],
+      aliases: [
+        { name: "didin", chatId: "212711973", messageThreadId: null, type: "private" },
+        { name: "Team Chat", chatId: "-1002603419700", messageThreadId: null, type: "group" },
+      ],
     });
     expect(bots.structuredContent).toEqual({
       bots: [

@@ -105,8 +105,10 @@ describe("bot and recipient services", () => {
       isDefault: true,
     });
     app.aliases.create({ name: "ops", chatId: "-100", messageThreadId: 42 });
+    app.aliases.create({ name: "Team Chat", chatId: "212711973" });
     expect(app.recipients.resolve("ops")).toEqual({ chatId: "-100", messageThreadId: 42 });
     expect(app.recipients.resolve("ops", 99)).toEqual({ chatId: "-100", messageThreadId: 99 });
+    expect(app.recipients.resolve("Team Chat")).toEqual({ chatId: "212711973" });
     expect(app.recipients.resolve("123")).toEqual({ chatId: "123" });
   });
 
