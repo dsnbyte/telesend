@@ -7,18 +7,26 @@ Defines an authenticated internet-facing HTTP interface for message delivery and
 ## Requirements
 
 ### Requirement: Refuse insecure REST startup
-The REST server SHALL read `TELESEND_API_KEY` at startup and SHALL exit nonzero before binding a listener when the value is absent or empty.
+The REST server SHALL read either `TELESEND_API_KEY` or `TELESEND_API_KEY_HASH` at startup and SHALL exit nonzero before binding a listener when both are absent or empty. `TELESEND_API_KEY` SHALL be hashed before use. `TELESEND_API_KEY_HASH` SHALL accept a Bun-compatible password hash or its Base64URL representation and take precedence whenever both variables are set. It SHALL provide `bun run rest:hash-api-key` to interactively generate a Base64URL representation without echoing the entered API key.
 
 #### Scenario: API key is missing
-- **WHEN** `telesend serve` starts without a non-empty `TELESEND_API_KEY`
+- **WHEN** `telesend serve` starts without a non-empty `TELESEND_API_KEY` or `TELESEND_API_KEY_HASH`
 - **THEN** it prints an actionable configuration error, binds no listener, and exits nonzero
 
-#### Scenario: API key is present
-- **WHEN** `telesend serve` starts with a non-empty `TELESEND_API_KEY` and valid server options
-- **THEN** it binds the configured listener and reports the actual bound address
+#### Scenario: Plaintext API key is present
+- **WHEN** `telesend serve` starts with a non-empty `TELESEND_API_KEY` and no `TELESEND_API_KEY_HASH`
+- **THEN** it hashes the API key, binds the configured listener, and reports the actual bound address
+
+#### Scenario: API key hash takes precedence
+- **WHEN** `telesend serve` starts with both `TELESEND_API_KEY` and a valid `TELESEND_API_KEY_HASH`
+- **THEN** it uses `TELESEND_API_KEY_HASH`, binds the configured listener, and reports the actual bound address
+
+#### Scenario: Operator generates an API key hash
+- **WHEN** an operator runs `bun run rest:hash-api-key` in an interactive terminal
+- **THEN** the command confirms the API key without echoing it and writes a complete `TELESEND_API_KEY_HASH` assignment to standard output
 
 ### Requirement: Authenticate every REST request
-Every REST endpoint SHALL require an `x-api-key` header whose value matches `TELESEND_API_KEY`, and authentication failures SHALL not reveal the expected value.
+Every REST endpoint SHALL require an `x-api-key` header whose value verifies against the configured API-key hash, and authentication failures SHALL not reveal the expected value.
 
 #### Scenario: Valid API key
 - **WHEN** a request carries the correct `x-api-key`
@@ -71,4 +79,3 @@ The REST API SHALL map authentication, validation, not-found, conflict, and upst
 #### Scenario: Invalid request body
 - **WHEN** an authenticated request fails input validation
 - **THEN** the server returns a client error with an actionable field-level description and no secrets
-

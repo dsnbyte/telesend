@@ -68,7 +68,7 @@ test("CLI, REST, and MCP share bots, aliases, threads, media, and safe failures"
     ).toBe(0);
     expect(await runCli(["msg", "text", "ops", "from-cli"], services(alphaToken), io)).toBe(0);
 
-    const rest = createRestHandler(app, "test-api-key");
+    const rest = createRestHandler(app, await Bun.password.hash("test-api-key"));
     const form = new FormData();
     form.set("to", "ops");
     form.set("bot", "beta_bot");

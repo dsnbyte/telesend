@@ -19,6 +19,7 @@
     "format": "biome format --write .",
     "check": "bun run typecheck && bun run test && bun run lint",
     "mcp:hash-password": "bun run src/mcp/generate-owner-password-hash.ts",
+    "rest:hash-api-key": "bun run src/rest/generate-api-key-hash.ts",
     "build": "bun build --compile --minify --outfile dist/telesend src/index.ts"
   },
   "type": "module",

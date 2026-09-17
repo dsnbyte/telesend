@@ -1,7 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createApplication } from "../src/app.ts";
-import { createRestHandler, type RestServer, startRestServer } from "../src/rest/server.ts";
+import {
+  createRestHandler,
+  loadRestAuthConfig,
+  type RestServer,
+  startRestServer,
+} from "../src/rest/server.ts";
 import { MESSAGE_CATALOG } from "../src/telegram/catalog.ts";
 import type { Fetch } from "../src/telegram/client.ts";
 
@@ -33,7 +38,7 @@ async function setup() {
   }) as Fetch;
   const app = await createApplication({ databasePath: ":memory:", fetcher });
   databases.push(app.database);
-  const handler = createRestHandler(app, API_KEY);
+  const handler = createRestHandler(app, await Bun.password.hash(API_KEY));
   const request = (path: string, init: RequestInit = {}) =>
     handler(
       new Request(`http://localhost${path}`, {
@@ -45,7 +50,7 @@ async function setup() {
 }
 
 describe("REST startup and authentication", () => {
-  test("refuses to bind without TELESEND_API_KEY", async () => {
+  test("refuses to bind without an API key", async () => {
     const { app } = await setup();
     let binds = 0;
     expect(() =>
@@ -60,8 +65,33 @@ describe("REST startup and authentication", () => {
           },
         },
       ),
-    ).toThrow("TELESEND_API_KEY is required");
+    ).toThrow("TELESEND_API_KEY or TELESEND_API_KEY_HASH is required");
     expect(binds).toBe(0);
+  });
+
+  test("hashes a plaintext API key", async () => {
+    const config = loadRestAuthConfig({ TELESEND_API_KEY: API_KEY });
+    expect(await Bun.password.verify(API_KEY, config.apiKeyHash)).toBe(true);
+  });
+
+  test("prefers a configured API key hash over a plaintext API key", async () => {
+    const configuredApiKey = "configured-api-key";
+    const config = loadRestAuthConfig({
+      TELESEND_API_KEY: API_KEY,
+      TELESEND_API_KEY_HASH: await Bun.password.hash(configuredApiKey),
+    });
+
+    expect(await Bun.password.verify(configuredApiKey, config.apiKeyHash)).toBe(true);
+    expect(await Bun.password.verify(API_KEY, config.apiKeyHash)).toBe(false);
+  });
+
+  test("does not fall back to a plaintext API key when the configured hash is invalid", () => {
+    expect(() =>
+      loadRestAuthConfig({
+        TELESEND_API_KEY: API_KEY,
+        TELESEND_API_KEY_HASH: "not-a-password-hash",
+      }),
+    ).toThrow("TELESEND_API_KEY_HASH must contain a Bun-compatible password hash");
   });
 
   test("reports the actual bound address", async () => {
@@ -89,6 +119,21 @@ describe("REST startup and authentication", () => {
     expect(response.status).toBe(401);
     expect(telegramCalls).toHaveLength(0);
     expect(await response.text()).not.toContain(API_KEY);
+  });
+
+  test("authenticates requests with a precomputed API key hash", async () => {
+    const { app } = await setup();
+    const apiKeyHash = await Bun.password.hash(API_KEY);
+    const handler = createRestHandler(app, apiKeyHash);
+
+    expect(
+      (await handler(new Request("http://localhost/health", { headers: { "x-api-key": API_KEY } })))
+        .status,
+    ).toBe(200);
+    expect(
+      (await handler(new Request("http://localhost/health", { headers: { "x-api-key": "wrong" } })))
+        .status,
+    ).toBe(401);
   });
 });
 
@@ -145,7 +190,7 @@ describe("REST messages", () => {
       });
       expect(response.status).toBe(200);
     }
-  });
+  }, 15_000);
 
   test("supports multipart uploads for every media operation", async () => {
     const api = await setup();

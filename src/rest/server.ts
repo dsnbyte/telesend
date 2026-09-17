@@ -1,6 +1,6 @@
-import { timingSafeEqual } from "node:crypto";
 import type { Application } from "../app.ts";
 import { AppError, redactSecrets } from "../core/errors.ts";
+import { decodeOwnerPasswordHash } from "../mcp/owner-password-hash.ts";
 import { getOperation } from "../telegram/catalog.ts";
 
 export interface RestOptions {
@@ -30,11 +30,8 @@ export function startRestServer(
   options: RestOptions,
   runtime: RestRuntime = {},
 ): RestServer {
-  const apiKey = (runtime.apiKey ?? process.env.TELESEND_API_KEY)?.trim();
-  if (!apiKey) {
-    throw new AppError("configuration", "TELESEND_API_KEY is required to start the REST server");
-  }
-  const handler = createRestHandler(app, apiKey);
+  const { apiKeyHash } = loadRestAuthConfig(process.env, runtime.apiKey);
+  const handler = createRestHandler(app, apiKeyHash);
   const server = (runtime.serve ?? ((value) => Bun.serve(value)))({
     ...(options.hostname ? { hostname: options.hostname } : {}),
     ...(options.port === undefined ? {} : { port: options.port }),
@@ -44,11 +41,37 @@ export function startRestServer(
   return server;
 }
 
-export function createRestHandler(app: Application, apiKey: string) {
-  if (!apiKey.trim()) throw new AppError("configuration", "REST API key cannot be empty");
+export function loadRestAuthConfig(
+  environment: Record<string, string | undefined> = process.env,
+  apiKeyOverride?: string,
+): { apiKeyHash: string } {
+  const configuredApiKeyHash = environment.TELESEND_API_KEY_HASH?.trim();
+  if (configuredApiKeyHash) {
+    const apiKeyHash = decodeOwnerPasswordHash(configuredApiKeyHash);
+    if (!apiKeyHash || !/^\$(?:argon2|2[aby]\$)/.test(apiKeyHash)) {
+      throw new AppError(
+        "configuration",
+        "TELESEND_API_KEY_HASH must contain a Bun-compatible password hash",
+      );
+    }
+    return { apiKeyHash };
+  }
+
+  const apiKey = (apiKeyOverride ?? environment.TELESEND_API_KEY)?.trim();
+  if (!apiKey) {
+    throw new AppError(
+      "configuration",
+      "TELESEND_API_KEY or TELESEND_API_KEY_HASH is required to start the REST server",
+    );
+  }
+  return { apiKeyHash: Bun.password.hashSync(apiKey) };
+}
+
+export function createRestHandler(app: Application, apiKeyHash: string) {
+  if (!apiKeyHash.trim()) throw new AppError("configuration", "REST API key hash cannot be empty");
   return async (request: Request): Promise<Response> => {
     try {
-      if (!authenticated(request.headers.get("x-api-key"), apiKey)) {
+      if (!(await authenticated(request.headers.get("x-api-key"), apiKeyHash))) {
         throw new AppError("unauthorized", "Invalid API key");
       }
       const length = Number(request.headers.get("content-length") ?? 0);
@@ -57,7 +80,7 @@ export function createRestHandler(app: Application, apiKey: string) {
       }
       return await route(app, request);
     } catch (error) {
-      return errorResponse(error, [apiKey]);
+      return errorResponse(error, [apiKeyHash]);
     }
   };
 }
@@ -223,11 +246,9 @@ function rejectServerPaths(value: unknown): void {
   for (const item of Object.values(record)) rejectServerPaths(item);
 }
 
-function authenticated(provided: string | null, expected: string): boolean {
+async function authenticated(provided: string | null, expectedHash: string): Promise<boolean> {
   if (provided === null) return false;
-  const actualBytes = Buffer.from(provided);
-  const expectedBytes = Buffer.from(expected);
-  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
+  return Bun.password.verify(provided, expectedHash);
 }
 
 function aliasInput(body: Record<string, unknown>) {

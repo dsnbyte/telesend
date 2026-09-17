@@ -99,7 +99,15 @@ Other supported Telegram fields can be supplied in `payload`; Telesend does not 
 
 ## REST API
 
-Set a non-empty API key before starting the internet-facing server. Startup fails before binding if it is missing.
+Set a non-empty API key before starting the internet-facing server. For normal deployments, set `TELESEND_API_KEY_HASH` to a Bun-compatible password hash (or its Base64URL representation); the server retains only the hash in memory. For simple local setups, `TELESEND_API_KEY` is accepted and hashed at startup. If both variables are set, `TELESEND_API_KEY_HASH` takes precedence. Startup fails before binding if neither is set.
+
+Generate a Base64URL-safe REST API-key hash without echoing the key:
+
+```sh
+bun run rest:hash-api-key
+```
+
+The command confirms the key and prints a complete `TELESEND_API_KEY_HASH=...` assignment. Keep the original API key separately; REST clients still send that original value in `x-api-key`.
 
 ```sh
 TELESEND_API_KEY='replace-with-a-long-random-secret' telesend serve --host 127.0.0.1 --port 3000
@@ -215,11 +223,11 @@ Generate a password hash in a terminal, then put the public HTTPS origin and gen
 bun run mcp:hash-password
 ```
 
-The command prompts twice without echoing the password. It prints one `TELESEND_MCP_OWNER_PASSWORD_HASH=...` line; copy that complete line into `.env`:
+The command prompts twice without echoing the password. It prints one `TELESEND_MCP_OWNER_PASSWORD_HASH=...` line in a Base64URL representation that is safe to copy into `.env`:
 
 ```sh
 TELESEND_MCP_PUBLIC_URL=https://telesend.example.com
-TELESEND_MCP_OWNER_PASSWORD_HASH=$argon2id$...
+TELESEND_MCP_OWNER_PASSWORD_HASH=JGFyZ29uMmlkJHY9MTkkLi4u
 ```
 
 Bun automatically loads `.env`; shell or process-supervisor variables take precedence. Start the listener with:
