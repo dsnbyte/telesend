@@ -116,6 +116,9 @@ describe("MCP interface", () => {
 
     const descriptions = sendTools.map(({ description }) => description);
     expect(new Set(descriptions).size).toBe(descriptions.length);
+    for (const description of descriptions) {
+      expect(description).not.toContain("get_telegram_parameter_doc");
+    }
     expect(tools.find(({ name }) => name === "send_text")?.description).toContain(
       'parse_mode: "HTML" or "MarkdownV2"',
     );

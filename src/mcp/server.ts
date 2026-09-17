@@ -218,8 +218,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
       title: "Send text message",
       description:
         'Send a Telegram text message. Use parse_mode: "HTML" or "MarkdownV2" for formatting. ' +
-        "Add draft_id to send as a streaming draft instead of a regular message. " +
-        "Standard parameters here are sufficient for ordinary messages; only call get_telegram_parameter_doc('sendMessage') if you specifically need advanced options (reply_markup, custom entities, link_preview_options).",
+        "Add draft_id to send as a streaming draft instead of a regular message.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -282,8 +281,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
       title: "Send rich message",
       description:
         "Send a rich/structured Telegram message. " +
-        "Add draft_id to send as a streaming draft instead. " +
-        "Basic parameters here are sufficient for standard rich messages; only call get_telegram_parameter_doc('sendRichMessage') if you need advanced options.",
+        "Add draft_id to send as a streaming draft instead.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -339,8 +337,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
         "Send a single media file. Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
         "video_note and live_photo do not support URL sources. " +
         "live_photo also requires a photo field (the still frame). " +
-        "Add caption for a text caption below the media. " +
-        "Basic parameters here are sufficient for standard media delivery; only call get_telegram_parameter_doc with the type name (e.g. 'video') if you specifically need advanced options like thumbnail, duration, or has_spoiler.",
+        "Add caption for a text caption below the media.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -428,8 +425,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
       description:
         "Send 2–10 media files as an album. " +
         "Add star_count to send as paid media locked behind Telegram Stars. " +
-        "Paid media does not support URL sources. " +
-        "Basic parameters here are sufficient; only call get_telegram_parameter_doc('sendMediaGroup') or ('sendPaidMedia') if you need advanced per-item options.",
+        "Paid media does not support URL sources.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -488,8 +484,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
     {
       title: "Send location or venue",
       description:
-        "Send a geographic location. Add both title and address to send as a named venue instead. " +
-        "Basic parameters here are sufficient for standard locations or venues; only call get_telegram_parameter_doc('sendLocation') or ('sendVenue') if you specifically need advanced options (live_period, foursquare_id, etc.).",
+        "Send a geographic location. Add both title and address to send as a named venue instead.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -541,9 +536,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
     "send_contact",
     {
       title: "Send contact",
-      description:
-        "Send a phone contact card. " +
-        "Basic parameters here are sufficient; only call get_telegram_parameter_doc('sendContact') if you need advanced options (last_name, vcard).",
+      description: "Send a phone contact card.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -585,8 +578,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
         "poll: requires question and options[]. " +
         "checklist: requires business_connection_id and checklist object. " +
         "dice: no required fields (optionally set emoji: 🎲🎯🏀⚽🎳🎰). " +
-        "game: requires game_short_name. " +
-        "Basic parameters here are sufficient; only call get_telegram_parameter_doc with the type name if you specifically need advanced options (quiz settings, poll open_period, etc.).",
+        "game: requires game_short_name.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -669,8 +661,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
     {
       title: "Send invoice",
       description:
-        "Send a payment invoice. Use currency: XTR for Telegram Stars payments (no provider_token needed). " +
-        "Basic parameters here are sufficient; only call get_telegram_parameter_doc('sendInvoice') if you need advanced options (photo_url, need_name, shipping, etc.).",
+        "Send a payment invoice. Use currency: XTR for Telegram Stars payments (no provider_token needed).",
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
