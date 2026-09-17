@@ -3,8 +3,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import type { Application } from "../app.ts";
 import { AppError, toAppError } from "../core/errors.ts";
-import { MESSAGE_CATALOG, type MessageOperation, type MessageType } from "../telegram/catalog.ts";
+import { getOperation } from "../telegram/catalog.ts";
 import { loadMcpConfig } from "./config.ts";
+import { getMethodDoc, KNOWN_QUERIES } from "./docs.ts";
 import { FilePolicy } from "./file-policy.ts";
 import { ICON_DATA_URL } from "./icon.ts";
 
@@ -22,37 +23,87 @@ interface McpToolPolicy {
 
 const SERVER_INSTRUCTIONS = [
   "Send Telegram messages through registered bots.",
-  "Use send_text for ordinary chat; other send_* tools match their content type.",
+  "send_text: plain text (add draft_id for streaming draft).",
+  "send_rich_message: structured/markdown message (add draft_id for streaming draft).",
+  "send_media: single file — set type: photo|video|animation|audio|document|sticker|voice|video_note|live_photo.",
+  "send_media_group: album of 2-10 files (add star_count for paid media locked behind Stars).",
+  "send_location: GPS point (add title+address for a venue).",
+  "send_interactive: set type: poll|checklist|dice|game.",
+  "send_invoice: payment invoice. send_contact: phone contact card.",
+  "get_telegram_parameter_doc: get advanced Telegram parameter documentation on demand. ONLY call this tool if you need advanced options (e.g. inline keyboards, custom entities) not present in the standard tool parameters. Do NOT call this tool if basic parameters are sufficient.",
   "Every send_* tool accepts payload.disable_notification: true for silent delivery.",
-  "to: chat ID, @username, or an alias from list_aliases.",
-  "Omit bot to use the default from list_bots.",
+  "to: chat ID, @username, or alias from list_aliases. Omit bot to use the default.",
 ].join("\n");
 
-const MCP_DESCRIPTIONS = {
-  text: 'Send a Telegram text message. In payload, use parse_mode: "HTML" or "MarkdownV2" for formatting.',
-  "message-draft": "Send a streaming text draft, not a regular chat.",
-  "rich-message": "Send a rich/structured Telegram message.",
-  "rich-message-draft": "Send a streaming rich-message draft.",
-  animation: "Send a Telegram GIF or animation.",
-  audio: "Send a Telegram audio track.",
-  document: "Send a Telegram document or file.",
-  "live-photo": "Send a Telegram live photo.",
-  photo: "Send a Telegram photo.",
-  sticker: "Send a Telegram sticker.",
-  video: "Send a Telegram video.",
-  "video-note": "Send a round Telegram video note.",
-  voice: "Send a Telegram voice note.",
-  "paid-media": "Send paid Telegram media for stars.",
-  "media-group": "Send a Telegram media album.",
-  location: "Send a geographic location.",
-  venue: "Send a venue with location, title, and address.",
-  contact: "Send a phone contact.",
-  poll: "Send a Telegram poll.",
-  checklist: "Send a Telegram business checklist.",
-  dice: "Send a Telegram dice animation.",
-  invoice: "Send a Telegram invoice.",
-  game: "Send an HTML5 Telegram game.",
-} as const satisfies Record<MessageType, string>;
+// ─── Shared schema helpers ────────────────────────────────────────────────────
+
+function mcpMediaSource(allowUrl: boolean, includePaths: boolean) {
+  const sources = [
+    ...(includePaths ? (["path"] as const) : []),
+    ...(allowUrl ? (["url"] as const) : []),
+    "file_id" as const,
+  ];
+  const description = includePaths
+    ? "Use a policy-approved path, a public URL where supported, or a Telegram file_id."
+    : allowUrl
+      ? "Use a public HTTPS URL reachable by Telegram or a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP."
+      : "Use a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP.";
+  return z.object({
+    source: z.enum(sources).describe(description),
+    value: z.string().min(1).describe(description),
+  });
+}
+
+/** Common top-level fields shared by all send_* tools */
+function envelopeSchema<T extends z.ZodRawShape>(payloadShape: T) {
+  return z.object({
+    to: z.string().min(1).describe("Chat ID, @username, or alias from list_aliases"),
+    bot: z.string().min(1).optional().describe("Bot username; default from list_bots if omitted"),
+    messageThreadId: z.number().int().positive().optional(),
+    payload: z.object(payloadShape).loose(),
+  });
+}
+
+// ─── Media type routing helpers ───────────────────────────────────────────────
+
+/** Map send_media `type` field values to catalog type names */
+const MEDIA_TYPE_TO_CATALOG: Record<string, string> = {
+  photo: "photo",
+  video: "video",
+  animation: "animation",
+  audio: "audio",
+  document: "document",
+  sticker: "sticker",
+  voice: "voice",
+  video_note: "video-note",
+  live_photo: "live-photo",
+};
+
+/** For most types the media field name equals the type, except for these */
+const MEDIA_TYPE_TO_FIELD: Record<string, string> = {
+  video_note: "video_note",
+  live_photo: "live_photo",
+};
+
+/** Types that do not allow URL sources */
+const MEDIA_TYPES_NO_URL = new Set(["video_note", "live_photo"]);
+
+// ─── Payload transform helpers ────────────────────────────────────────────────
+
+/**
+ * Remap send_media's unified `file` field to the type-specific field name
+ * expected by the delivery service (e.g. file → video, file → audio).
+ */
+function remapMediaPayload(
+  type: string,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const { file, ...rest } = payload;
+  const fieldName = MEDIA_TYPE_TO_FIELD[type] ?? type;
+  return { ...rest, [fieldName]: file };
+}
+
+// ─── Server factories ─────────────────────────────────────────────────────────
 
 export function createMcpServer(app: Application, filePolicy: FilePolicy): McpServer {
   return createToolServer(app, {
@@ -80,6 +131,8 @@ export function createRemoteMcpServer(
   );
 }
 
+// ─── Core server builder ──────────────────────────────────────────────────────
+
 function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: string): McpServer {
   const server = new McpServer(
     {
@@ -97,6 +150,8 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
     { instructions: SERVER_INSTRUCTIONS },
   );
 
+  // ── Discovery tools ─────────────────────────────────────────────────────────
+
   server.registerTool(
     "list_aliases",
     {
@@ -110,6 +165,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
         ? jsonResult({ aliases: app.aliases.list() })
         : toolError(new AppError("unauthorized", "MCP scope mcp:read is required")),
   );
+
   server.registerTool(
     "list_bots",
     {
@@ -124,52 +180,556 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
         : toolError(new AppError("unauthorized", "MCP scope mcp:read is required")),
   );
 
-  for (const operation of MESSAGE_CATALOG) {
-    server.registerTool(
-      toolName(operation.type),
-      {
-        title: `Send ${operation.description}`,
-        description: MCP_DESCRIPTIONS[operation.type as keyof typeof MCP_DESCRIPTIONS],
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: false,
-          idempotentHint: false,
-          openWorldHint: true,
-        },
-        inputSchema: z.object({
-          to: z.string().min(1).describe("Chat ID, @username, or alias from list_aliases"),
-          bot: z
-            .string()
-            .min(1)
-            .optional()
-            .describe("Bot username; default from list_bots if omitted"),
-          messageThreadId: z.number().int().positive().optional(),
-          payload: payloadSchema(operation, policy.includePaths),
-        }),
+  // ── Documentation tool ──────────────────────────────────────────────────────
+
+  server.registerTool(
+    "get_telegram_parameter_doc",
+    {
+      title: "Get Telegram parameter docs",
+      description:
+        "Return advanced parameter documentation for a Telegram Bot API method or Telesend message type. " +
+        "ONLY call this tool if you need advanced parameters or customization options not available in the send_* tool schemas. " +
+        "DO NOT call this tool if the basic parameters (e.g. text, parse_mode, caption, file, type, disable_notification) are sufficient for your task. " +
+        `Accepts Telegram method names (e.g. "sendMessage", "sendPhoto") or Telesend types (e.g. "text", "photo", "poll").`,
+      inputSchema: z.object({
+        method: z
+          .string()
+          .min(1)
+          .describe(
+            `Telegram method name or Telesend type. Known values: ${KNOWN_QUERIES.join(", ")}`,
+          ),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    ({ method }) => {
+      const doc = getMethodDoc(method);
+      if (!doc) {
+        return toolError(
+          new AppError(
+            "not_found",
+            `No docs found for "${method}". Valid queries: ${KNOWN_QUERIES.join(", ")}`,
+          ),
+        );
+      }
+      return jsonResult(doc as unknown as Record<string, unknown>);
+    },
+  );
+
+  // ── send_text ───────────────────────────────────────────────────────────────
+
+  server.registerTool(
+    "send_text",
+    {
+      title: "Send text message",
+      description:
+        'Send a Telegram text message. Use parse_mode: "HTML" or "MarkdownV2" for formatting. ' +
+        "Add draft_id to send as a streaming draft instead of a regular message. " +
+        "Standard parameters here are sufficient for ordinary messages; only call get_telegram_parameter_doc('sendMessage') if you specifically need advanced options (reply_markup, custom entities, link_preview_options).",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
-      async ({ to, bot, messageThreadId, payload }) => {
-        try {
-          if (!policy.canSend) {
-            throw new AppError("unauthorized", "MCP scope mcp:send is required");
-          }
-          const safePayload = (await policy.authorizePayload(payload)) as Record<string, unknown>;
-          return jsonResult(
-            (await app.delivery.send({
-              type: operation.type,
-              to,
-              ...(bot === undefined ? {} : { bot }),
-              ...(messageThreadId === undefined ? {} : { messageThreadId }),
-              payload: safePayload,
-            })) as unknown as Record<string, unknown>,
-          );
-        } catch (error) {
-          return toolError(error);
+      inputSchema: envelopeSchema({
+        text: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Message text. Required unless draft_id is set."),
+        draft_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Set to send as a streaming draft (thinking indicator) instead of a chat message.",
+          ),
+        parse_mode: z
+          .enum(["HTML", "MarkdownV2", "Markdown"])
+          .optional()
+          .describe('Text formatting mode. Recommended: "HTML" or "MarkdownV2".'),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const { draft_id, text, ...rest } = payload;
+        const isDraft = draft_id !== undefined;
+        if (!isDraft && (text === undefined || text === "")) {
+          throw new AppError("validation", 'Field "text" is required when draft_id is not set');
         }
+        const type = isDraft ? "message-draft" : "text";
+        const safePayload = (await policy.authorizePayload({
+          ...rest,
+          ...(isDraft ? { draft_id } : { text }),
+        })) as Record<string, unknown>;
+        return jsonResult(
+          (await app.delivery.send({
+            type,
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // ── send_rich_message ───────────────────────────────────────────────────────
+
+  server.registerTool(
+    "send_rich_message",
+    {
+      title: "Send rich message",
+      description:
+        "Send a rich/structured Telegram message. " +
+        "Add draft_id to send as a streaming draft instead. " +
+        "Basic parameters here are sufficient for standard rich messages; only call get_telegram_parameter_doc('sendRichMessage') if you need advanced options.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
-    );
-  }
+      inputSchema: envelopeSchema({
+        rich_message: z
+          .object({})
+          .loose()
+          .describe("Rich message content, e.g. { markdown: '**Hello**' }."),
+        draft_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Set to send as a streaming rich-message draft."),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const { draft_id, ...rest } = payload;
+        const type = draft_id !== undefined ? "rich-message-draft" : "rich-message";
+        const safePayload = (await policy.authorizePayload({
+          ...rest,
+          ...(draft_id !== undefined ? { draft_id } : {}),
+        })) as Record<string, unknown>;
+        return jsonResult(
+          (await app.delivery.send({
+            type,
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // ── send_media ──────────────────────────────────────────────────────────────
+
+  const mediaTypeEnum = Object.keys(MEDIA_TYPE_TO_CATALOG) as [string, ...string[]];
+
+  server.registerTool(
+    "send_media",
+    {
+      title: "Send media file",
+      description:
+        "Send a single media file. Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
+        "video_note and live_photo do not support URL sources. " +
+        "live_photo also requires a photo field (the still frame). " +
+        "Add caption for a text caption below the media. " +
+        "Basic parameters here are sufficient for standard media delivery; only call get_telegram_parameter_doc with the type name (e.g. 'video') if you specifically need advanced options like thumbnail, duration, or has_spoiler.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      inputSchema: envelopeSchema({
+        type: z.enum(mediaTypeEnum as [string, ...string[]]).describe("Media type to send."),
+        file: mcpMediaSource(true, policy.includePaths).describe(
+          "The media file. For video_note and live_photo, only path and file_id are accepted.",
+        ),
+        photo: mcpMediaSource(false, policy.includePaths)
+          .optional()
+          .describe(
+            "Required only for live_photo: the still-frame companion photo (path or file_id only).",
+          ),
+        caption: z
+          .string()
+          .optional()
+          .describe("Optional caption displayed below the media (max 1024 chars)."),
+        parse_mode: z
+          .enum(["HTML", "MarkdownV2", "Markdown"])
+          .optional()
+          .describe("Parse mode for the caption."),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const { type, file, ...rest } = payload;
+        if (!type || !(type in MEDIA_TYPE_TO_CATALOG)) {
+          throw new AppError(
+            "validation",
+            `Invalid media type "${String(type)}". Use: ${mediaTypeEnum.join(", ")}`,
+          );
+        }
+        if (!file) throw new AppError("validation", 'Field "file" is required for send_media');
+        const catalogType = MEDIA_TYPE_TO_CATALOG[type as string] as string;
+        const operation = getOperation(catalogType);
+        if (
+          MEDIA_TYPES_NO_URL.has(type as string) &&
+          (file as { source?: string }).source === "url"
+        ) {
+          throw new AppError(
+            "validation",
+            `URL source is not supported for type "${String(type)}"`,
+          );
+        }
+        const rawPayload = remapMediaPayload(type as string, { ...rest, file });
+        const safePayload = (await policy.authorizePayload(rawPayload)) as Record<string, unknown>;
+        // Validate required fields via operation metadata
+        for (const field of operation.requiredFields) {
+          if (
+            safePayload[field] === undefined ||
+            safePayload[field] === null ||
+            safePayload[field] === ""
+          ) {
+            throw new AppError(
+              "validation",
+              `Field "${field}" is required for type "${String(type)}"`,
+            );
+          }
+        }
+        return jsonResult(
+          (await app.delivery.send({
+            type: catalogType,
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // ── send_media_group ────────────────────────────────────────────────────────
+
+  server.registerTool(
+    "send_media_group",
+    {
+      title: "Send media album",
+      description:
+        "Send 2–10 media files as an album. " +
+        "Add star_count to send as paid media locked behind Telegram Stars. " +
+        "Paid media does not support URL sources. " +
+        "Basic parameters here are sufficient; only call get_telegram_parameter_doc('sendMediaGroup') or ('sendPaidMedia') if you need advanced per-item options.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      inputSchema: envelopeSchema({
+        media: z
+          .array(
+            z
+              .object({
+                type: z.string().min(1).describe("Item type: photo, video, audio, or document."),
+                media: mcpMediaSource(true, policy.includePaths),
+              })
+              .loose(),
+          )
+          .describe("Array of 2–10 media items."),
+        star_count: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Set to send as paid media (Telegram Stars required to view). Disables URL sources.",
+          ),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const { star_count, ...rest } = payload;
+        const type = star_count !== undefined ? "paid-media" : "media-group";
+        const safePayload = (await policy.authorizePayload({
+          ...rest,
+          ...(star_count !== undefined ? { star_count } : {}),
+        })) as Record<string, unknown>;
+        return jsonResult(
+          (await app.delivery.send({
+            type,
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // ── send_location ───────────────────────────────────────────────────────────
+
+  server.registerTool(
+    "send_location",
+    {
+      title: "Send location or venue",
+      description:
+        "Send a geographic location. Add both title and address to send as a named venue instead. " +
+        "Basic parameters here are sufficient for standard locations or venues; only call get_telegram_parameter_doc('sendLocation') or ('sendVenue') if you specifically need advanced options (live_period, foursquare_id, etc.).",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      inputSchema: envelopeSchema({
+        latitude: z.number().describe("Latitude of the location."),
+        longitude: z.number().describe("Longitude of the location."),
+        title: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Venue name. Required together with address to send a venue."),
+        address: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Venue address. Required together with title to send a venue."),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const isVenue = payload.title !== undefined && payload.address !== undefined;
+        if ((payload.title !== undefined) !== (payload.address !== undefined)) {
+          throw new AppError("validation", "title and address must both be set to send a venue");
+        }
+        const type = isVenue ? "venue" : "location";
+        const safePayload = (await policy.authorizePayload(payload)) as Record<string, unknown>;
+        return jsonResult(
+          (await app.delivery.send({
+            type,
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // ── send_contact ────────────────────────────────────────────────────────────
+
+  server.registerTool(
+    "send_contact",
+    {
+      title: "Send contact",
+      description:
+        "Send a phone contact card. " +
+        "Basic parameters here are sufficient; only call get_telegram_parameter_doc('sendContact') if you need advanced options (last_name, vcard).",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      inputSchema: envelopeSchema({
+        phone_number: z.string().min(1).describe("Contact's phone number."),
+        first_name: z.string().min(1).describe("Contact's first name."),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const safePayload = (await policy.authorizePayload(payload)) as Record<string, unknown>;
+        return jsonResult(
+          (await app.delivery.send({
+            type: "contact",
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // ── send_interactive ────────────────────────────────────────────────────────
+
+  server.registerTool(
+    "send_interactive",
+    {
+      title: "Send interactive content",
+      description:
+        "Send interactive content. Set type to: poll, checklist, dice, or game. " +
+        "poll: requires question and options[]. " +
+        "checklist: requires business_connection_id and checklist object. " +
+        "dice: no required fields (optionally set emoji: 🎲🎯🏀⚽🎳🎰). " +
+        "game: requires game_short_name. " +
+        "Basic parameters here are sufficient; only call get_telegram_parameter_doc with the type name if you specifically need advanced options (quiz settings, poll open_period, etc.).",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      inputSchema: envelopeSchema({
+        type: z.enum(["poll", "checklist", "dice", "game"]).describe("Interactive content type."),
+        // poll fields
+        question: z.string().min(1).optional().describe("Poll question (required for type: poll)."),
+        options: z
+          .array(z.object({ text: z.string().min(1) }).loose())
+          .optional()
+          .describe("Poll answer options, 2–10 items (required for type: poll)."),
+        // checklist fields
+        business_connection_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Business connection ID (required for type: checklist)."),
+        checklist: z
+          .object({})
+          .loose()
+          .optional()
+          .describe(
+            "Checklist object (required for type: checklist). Shape: { title, tasks: [{id, text}], others_can_add_tasks?, others_can_mark_tasks_as_done? }.",
+          ),
+        // game fields
+        game_short_name: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Short name of the HTML5 game from @BotFather (required for type: game)."),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const { type, ...rest } = payload;
+        if (!type)
+          throw new AppError("validation", 'Field "type" is required for send_interactive');
+        // Validate required fields per type
+        if (type === "poll") {
+          if (!rest.question)
+            throw new AppError("validation", 'Field "question" is required for type: poll');
+          if (!rest.options)
+            throw new AppError("validation", 'Field "options" is required for type: poll');
+        } else if (type === "checklist") {
+          if (!rest.business_connection_id)
+            throw new AppError(
+              "validation",
+              'Field "business_connection_id" is required for type: checklist',
+            );
+          if (!rest.checklist)
+            throw new AppError("validation", 'Field "checklist" is required for type: checklist');
+        } else if (type === "game") {
+          if (!rest.game_short_name)
+            throw new AppError("validation", 'Field "game_short_name" is required for type: game');
+        }
+        const safePayload = (await policy.authorizePayload(rest)) as Record<string, unknown>;
+        return jsonResult(
+          (await app.delivery.send({
+            type: type as string,
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // ── send_invoice ────────────────────────────────────────────────────────────
+
+  server.registerTool(
+    "send_invoice",
+    {
+      title: "Send invoice",
+      description:
+        "Send a payment invoice. Use currency: XTR for Telegram Stars payments (no provider_token needed). " +
+        "Basic parameters here are sufficient; only call get_telegram_parameter_doc('sendInvoice') if you need advanced options (photo_url, need_name, shipping, etc.).",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      inputSchema: envelopeSchema({
+        title: z.string().min(1).describe("Product name (1–32 chars)."),
+        description: z.string().min(1).describe("Product description (1–255 chars)."),
+        payload: z
+          .string()
+          .min(1)
+          .describe("Internal bot payload for this invoice (1–128 bytes, not shown to users)."),
+        currency: z
+          .string()
+          .min(1)
+          .describe('Three-letter ISO 4217 currency code, or "XTR" for Telegram Stars.'),
+        prices: z
+          .array(
+            z
+              .object({
+                label: z.string().min(1),
+                amount: z.number().int(),
+              })
+              .loose(),
+          )
+          .describe(
+            "Price breakdown. Each item: { label, amount } where amount is in smallest currency units.",
+          ),
+      }),
+    },
+    async ({ to, bot, messageThreadId, payload }) => {
+      try {
+        if (!policy.canSend) throw new AppError("unauthorized", "MCP scope mcp:send is required");
+        const safePayload = (await policy.authorizePayload(payload)) as Record<string, unknown>;
+        return jsonResult(
+          (await app.delivery.send({
+            type: "invoice",
+            to,
+            ...(bot ? { bot } : {}),
+            ...(messageThreadId ? { messageThreadId } : {}),
+            payload: safePayload,
+          })) as unknown as Record<string, unknown>,
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
   return server;
 }
+
+// ─── MCP server startup ───────────────────────────────────────────────────────
 
 export async function startMcpServer(app: Application, options: McpOptions): Promise<void> {
   const config = await loadMcpConfig(
@@ -185,6 +745,8 @@ export async function startMcpServer(app: Application, options: McpOptions): Pro
   });
   await createMcpServer(app, filePolicy).connect(new StdioServerTransport());
 }
+
+// ─── Payload authorization ────────────────────────────────────────────────────
 
 export async function authorizeMcpPayload(value: unknown, policy: FilePolicy): Promise<unknown> {
   if (Array.isArray(value)) {
@@ -250,78 +812,11 @@ export async function authorizeRemoteMcpPayload(value: unknown): Promise<unknown
   );
 }
 
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+/** @deprecated Use consolidated tool names. Kept for backward compatibility in tests. */
 export function toolName(type: string): string {
   return `send_${type.replaceAll("-", "_")}`;
-}
-
-function payloadSchema(operation: MessageOperation, includePaths: boolean) {
-  return z
-    .object(
-      Object.fromEntries(
-        operation.requiredFields.map((field) => [
-          field,
-          payloadField(operation, field, includePaths),
-        ]),
-      ),
-    )
-    .loose();
-}
-
-function payloadField(operation: MessageOperation, field: string, includePaths: boolean) {
-  if (operation.mediaFields.includes(field)) {
-    if (field === "media") {
-      return z.array(
-        z
-          .object({
-            type: z.string().min(1),
-            media: mcpMediaSource(operation.allowUrl, includePaths),
-          })
-          .loose(),
-      );
-    }
-    return mcpMediaSource(operation.allowUrl, includePaths);
-  }
-  switch (field) {
-    case "draft_id":
-    case "star_count":
-      return z.number().int().positive();
-    case "latitude":
-    case "longitude":
-      return z.number();
-    case "options":
-      return z.array(z.object({ text: z.string().min(1) }).loose());
-    case "prices":
-      return z.array(
-        z
-          .object({
-            label: z.string().min(1),
-            amount: z.number().int(),
-          })
-          .loose(),
-      );
-    case "rich_message":
-    case "checklist":
-      return z.object({}).loose();
-    default:
-      return z.string().min(1);
-  }
-}
-
-function mcpMediaSource(allowUrl: boolean, includePaths: boolean) {
-  const sources = [
-    ...(includePaths ? (["path"] as const) : []),
-    ...(allowUrl ? (["url"] as const) : []),
-    "file_id" as const,
-  ];
-  const description = includePaths
-    ? "Use a policy-approved path, a public URL where supported, or a Telegram file_id."
-    : allowUrl
-      ? "Use a public HTTPS URL reachable by Telegram or a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP."
-      : "Use a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP.";
-  return z.object({
-    source: z.enum(sources).describe(description),
-    value: z.string().min(1).describe(description),
-  });
 }
 
 function jsonResult(data: Record<string, unknown>) {

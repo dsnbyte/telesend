@@ -6,15 +6,14 @@ import { PassThrough } from "node:stream";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { type Application, createApplication } from "../src/app.ts";
+import type { MethodDoc } from "../src/mcp/docs.ts";
 import { FilePolicy } from "../src/mcp/file-policy.ts";
 import {
   authorizeMcpPayload,
   authorizeRemoteMcpPayload,
   createMcpServer,
   createRemoteMcpServer,
-  toolName,
 } from "../src/mcp/server.ts";
-import { MESSAGE_CATALOG } from "../src/telegram/catalog.ts";
 import type { Fetch } from "../src/telegram/client.ts";
 import { TestMcpClient } from "./helpers/mcp-client.ts";
 
@@ -96,7 +95,15 @@ describe("MCP interface", () => {
     expect(tools.map(({ name }) => name)).toEqual([
       "list_aliases",
       "list_bots",
-      ...MESSAGE_CATALOG.map(({ type }) => toolName(type)),
+      "get_telegram_parameter_doc",
+      "send_text",
+      "send_rich_message",
+      "send_media",
+      "send_media_group",
+      "send_location",
+      "send_contact",
+      "send_interactive",
+      "send_invoice",
     ]);
     expect(tools.some(({ name }) => name === "telegram_method")).toBeFalse();
 
@@ -105,21 +112,18 @@ describe("MCP interface", () => {
     expect(tools.find(({ name }) => name === "send_text")?.description).toContain(
       'parse_mode: "HTML" or "MarkdownV2"',
     );
-    expect(tools.find(({ name }) => name === "send_message_draft")?.description).toContain("draft");
+    expect(tools.find(({ name }) => name === "send_text")?.description).toContain("draft");
 
     expect(
       tools.find(({ name }) => name === "send_text")?.inputSchema?.properties?.payload?.properties
         ?.text?.type,
     ).toBe("string");
-    expect(sourceEnum(tools.find(({ name }) => name === "send_photo")?.inputSchema)).toEqual([
-      "path",
-      "url",
-      "file_id",
-    ]);
-    expect(sourceEnum(tools.find(({ name }) => name === "send_video_note")?.inputSchema)).toEqual([
-      "path",
-      "file_id",
-    ]);
+    expect(
+      sourceEnum(tools.find(({ name }) => name === "send_media")?.inputSchema, "file"),
+    ).toEqual(["path", "url", "file_id"]);
+    expect(
+      sourceEnum(tools.find(({ name }) => name === "send_media")?.inputSchema, "photo"),
+    ).toEqual(["path", "file_id"]);
   });
 
   test("annotates tools and exposes a remote-safe media schema", async () => {
@@ -152,16 +156,15 @@ describe("MCP interface", () => {
       readOnlyHint: false,
       idempotentHint: false,
     });
-    expect(sourceEnum(tools.find(({ name }) => name === "send_photo")?.inputSchema)).toEqual([
-      "url",
-      "file_id",
-    ]);
-    expect(sourceEnum(tools.find(({ name }) => name === "send_video_note")?.inputSchema)).toEqual([
-      "file_id",
-    ]);
     expect(
-      tools.find(({ name }) => name === "send_photo")?.inputSchema?.properties?.payload?.properties
-        ?.photo?.properties?.value?.description,
+      sourceEnum(tools.find(({ name }) => name === "send_media")?.inputSchema, "file"),
+    ).toEqual(["url", "file_id"]);
+    expect(
+      sourceEnum(tools.find(({ name }) => name === "send_media")?.inputSchema, "photo"),
+    ).toEqual(["file_id"]);
+    expect(
+      tools.find(({ name }) => name === "send_media")?.inputSchema?.properties?.payload?.properties
+        ?.file?.properties?.value?.description,
     ).toContain("Chat attachments and generated files cannot be uploaded directly");
   });
 
@@ -304,30 +307,63 @@ describe("MCP interface", () => {
     const path = join(root, "media.bin");
     await Bun.write(path, "media");
 
-    for (const operation of MESSAGE_CATALOG.filter(({ mediaFields }) => mediaFields.length > 0)) {
-      const result = await client.call(toolName(operation.type), {
-        to: "1",
-        payload: replaceMedia(operation.examplePayload, { source: "path", value: path }),
-      });
+    const singleMedia = [
+      "photo",
+      "video",
+      "animation",
+      "audio",
+      "document",
+      "sticker",
+      "voice",
+      "video_note",
+      "live_photo",
+    ];
+    for (const type of singleMedia) {
+      const payload: Record<string, unknown> = {
+        type,
+        file: { source: "path", value: path },
+      };
+      if (type === "live_photo") {
+        payload.photo = { source: "path", value: path };
+      }
+      const result = await client.call("send_media", { to: "1", payload });
       expect(result.isError).not.toBeTrue();
     }
+    const groupResult = await client.call("send_media_group", {
+      to: "1",
+      payload: { media: [{ type: "photo", media: { source: "path", value: path } }] },
+    });
+    expect(groupResult.isError).not.toBeTrue();
+
+    const paidResult = await client.call("send_media_group", {
+      to: "1",
+      payload: {
+        star_count: 1,
+        media: [{ type: "photo", media: { source: "path", value: path } }],
+      },
+    });
+    expect(paidResult.isError).not.toBeTrue();
+
     expect(contentTypes).toEqual(
-      MESSAGE_CATALOG.filter(({ mediaFields }) => mediaFields.length > 0).map(() => "multipart"),
+      [...singleMedia, "media_group", "paid_media"].map(() => "multipart"),
     );
 
     expect(
       (
-        await client.call("send_photo", {
+        await client.call("send_media", {
           to: "1",
-          payload: { photo: { source: "file_id", value: "telegram-id" } },
+          payload: { type: "photo", file: { source: "file_id", value: "telegram-id" } },
         })
       ).isError,
     ).not.toBeTrue();
     expect(
       (
-        await client.call("send_photo", {
+        await client.call("send_media", {
           to: "1",
-          payload: { photo: { source: "url", value: "https://example.com/photo.jpg" } },
+          payload: {
+            type: "photo",
+            file: { source: "url", value: "https://example.com/photo.jpg" },
+          },
         })
       ).isError,
     ).not.toBeTrue();
@@ -344,21 +380,119 @@ describe("MCP interface", () => {
     await Bun.write(denied, "SECRET=value");
     expect(
       (
-        await client.call("send_document", {
+        await client.call("send_media", {
           to: "1",
-          payload: { document: { source: "path", value: denied } },
+          payload: { type: "document", file: { source: "path", value: denied } },
         })
       ).isError,
     ).toBeTrue();
     expect(
       (
-        await client.call("send_document", {
+        await client.call("send_media", {
           to: "1",
-          payload: { document: { source: "upload", value: "bytes" } },
+          payload: { type: "document", file: { source: "upload", value: "bytes" } },
         })
       ).isError,
     ).toBeTrue();
     expect(deliveries).toBe(0);
+  });
+
+  test("get_telegram_parameter_doc returns docs for methods and types", async () => {
+    const { client } = await setup(okFetch);
+    const doc1 = await client.call("get_telegram_parameter_doc", { method: "sendMessage" });
+    expect(doc1.isError).not.toBeTrue();
+    const content1 = doc1.structuredContent as unknown as MethodDoc;
+    expect(content1.method).toBe("sendMessage");
+    expect(content1.mcpTool).toBe("send_text");
+    expect(content1.advancedParams.some((p) => p.name === "reply_markup")).toBeTrue();
+
+    const doc2 = await client.call("get_telegram_parameter_doc", { method: "video" });
+    expect(doc2.isError).not.toBeTrue();
+    const content2 = doc2.structuredContent as unknown as MethodDoc;
+    expect(content2.method).toBe("sendVideo");
+
+    const err = await client.call("get_telegram_parameter_doc", { method: "nonexistent" });
+    expect(err.isError).toBeTrue();
+    expect(JSON.stringify(err)).toContain("not_found");
+  });
+
+  test("routes grouped tools correctly based on payload parameters", async () => {
+    const calls: Array<{ method: string; body: Record<string, unknown> }> = [];
+    const { app, client } = await setup((async (url, init) => {
+      calls.push({
+        method: String(url).split("/").at(-1) as string,
+        body: JSON.parse(String(init?.body)),
+      });
+      return Response.json({ ok: true, result: { message_id: calls.length } });
+    }) as Fetch);
+    await app.bots.register("token");
+
+    // 1. send_text draft routing
+    await client.call("send_text", { to: "1", payload: { draft_id: 123 } });
+    expect(calls.at(-1)?.method).toBe("sendMessageDraft");
+    expect(calls.at(-1)?.body.draft_id).toBe(123);
+
+    // 2. send_rich_message normal vs draft
+    await client.call("send_rich_message", {
+      to: "1",
+      payload: { rich_message: { markdown: "hi" } },
+    });
+    expect(calls.at(-1)?.method).toBe("sendRichMessage");
+    await client.call("send_rich_message", {
+      to: "1",
+      payload: { draft_id: 1, rich_message: { markdown: "hi" } },
+    });
+    expect(calls.at(-1)?.method).toBe("sendRichMessageDraft");
+
+    // 3. send_location normal vs venue
+    await client.call("send_location", { to: "1", payload: { latitude: 1.0, longitude: 2.0 } });
+    expect(calls.at(-1)?.method).toBe("sendLocation");
+    await client.call("send_location", {
+      to: "1",
+      payload: { latitude: 1.0, longitude: 2.0, title: "T", address: "A" },
+    });
+    expect(calls.at(-1)?.method).toBe("sendVenue");
+
+    // 4. send_interactive: poll, checklist, dice, game
+    await client.call("send_interactive", {
+      to: "1",
+      payload: { type: "poll", question: "Q?", options: [{ text: "O1" }] },
+    });
+    expect(calls.at(-1)?.method).toBe("sendPoll");
+    await client.call("send_interactive", {
+      to: "1",
+      payload: {
+        type: "checklist",
+        business_connection_id: "bc",
+        checklist: { title: "T", tasks: [] },
+      },
+    });
+    expect(calls.at(-1)?.method).toBe("sendChecklist");
+    await client.call("send_interactive", { to: "1", payload: { type: "dice", emoji: "🎯" } });
+    expect(calls.at(-1)?.method).toBe("sendDice");
+    await client.call("send_interactive", {
+      to: "1",
+      payload: { type: "game", game_short_name: "testgame" },
+    });
+    expect(calls.at(-1)?.method).toBe("sendGame");
+
+    // 5. send_contact & send_invoice
+    await client.call("send_contact", {
+      to: "1",
+      payload: { phone_number: "+12345", first_name: "John" },
+    });
+    expect(calls.at(-1)?.method).toBe("sendContact");
+    await client.call("send_invoice", {
+      to: "1",
+      payload: {
+        title: "T",
+        description: "D",
+        payload: "p",
+        currency: "XTR",
+        prices: [{ label: "L", amount: 1 }],
+      },
+    });
+    expect(calls.at(-1)?.method).toBe("sendInvoice");
   });
 });
 
@@ -408,9 +542,12 @@ function sourceEnum(
         };
       }
     | undefined,
+  field = "file",
 ) {
-  const source = Object.values(schema?.properties?.payload?.properties ?? {})[0]?.properties
-    ?.source;
+  const prop =
+    schema?.properties?.payload?.properties?.[field] ??
+    Object.values(schema?.properties?.payload?.properties ?? {})[0];
+  const source = prop?.properties?.source;
   if (source && typeof source === "object" && "enum" in source) {
     return (source as { enum: string[] }).enum;
   }
@@ -418,19 +555,4 @@ function sourceEnum(
     return (source as { anyOf: Array<{ const?: string }> }).anyOf.map((entry) => entry.const);
   }
   return source;
-}
-
-function replaceMedia(value: unknown, source: Record<string, unknown>): Record<string, unknown> {
-  return replace(value, source) as Record<string, unknown>;
-}
-
-function replace(value: unknown, source: Record<string, unknown>): unknown {
-  if (value && typeof value === "object" && "source" in value) return { ...source };
-  if (Array.isArray(value)) return value.map((item) => replace(item, source));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, replace(item, source)]),
-    );
-  }
-  return value;
 }

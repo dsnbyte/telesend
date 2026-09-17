@@ -6,12 +6,16 @@ Defines a stdio MCP interface for outbound delivery while preventing model-initi
 
 ## Requirements
 
-### Requirement: Expose content-specific MCP delivery tools
-The MCP server SHALL run over standard input and output and SHALL expose a dedicated tool for every message content type supported by Telesend. It SHALL not expose bot or alias administration tools or an unrestricted Telegram method tool.
+### Requirement: Expose categorized MCP delivery and documentation tools
+The MCP server SHALL run over standard input and output and SHALL expose categorized delivery tools covering all supported Telesend content types along with a parameter documentation tool (`get_telegram_parameter_doc`). It SHALL not expose bot or alias administration tools or an unrestricted Telegram method tool.
 
 #### Scenario: Send text through MCP
 - **WHEN** an MCP client calls the text tool with a valid recipient and content
 - **THEN** the server returns the normalized delivery result
+
+#### Scenario: Retrieve advanced Telegram parameter documentation on demand
+- **WHEN** an MCP client calls `get_telegram_parameter_doc` with a supported method or type
+- **THEN** the server returns advanced parameter descriptions without requiring full schema bloat in delivery tools
 
 #### Scenario: Attempt administration through MCP
 - **WHEN** an MCP client requests bot or alias mutation

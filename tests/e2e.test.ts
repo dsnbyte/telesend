@@ -98,9 +98,9 @@ test("CLI, REST, and MCP share bots, aliases, threads, media, and safe failures"
     expect(aliases.structuredContent).toEqual({
       aliases: [{ name: "ops", chatId: "-100123", messageThreadId: 42 }],
     });
-    const mediaResult = await mcp.call("send_document", {
+    const mediaResult = await mcp.call("send_media", {
       to: "ops",
-      payload: { document: { source: "path", value: document } },
+      payload: { type: "document", file: { source: "path", value: document } },
     });
     expect(mediaResult.isError).not.toBeTrue();
 
