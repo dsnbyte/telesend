@@ -203,13 +203,19 @@ export async function authorizeRemoteMcpPayload(value: unknown): Promise<unknown
   const record = value as Record<string, unknown>;
   if ("source" in record) {
     if (!isMcpSource(record.source)) {
-      throw new AppError("validation", "MCP media source must be url or file_id");
+      throw new AppError(
+        "validation",
+        "Remote MCP media must use a public URL or Telegram file_id; chat attachments and generated files cannot be uploaded directly",
+      );
     }
     if (typeof record.value !== "string" || record.value.length === 0) {
       throw new AppError("validation", `MCP media source ${record.source} requires a value`);
     }
     if (record.source === "path") {
-      throw new AppError("filesystem_policy", "Remote MCP cannot use server filesystem paths");
+      throw new AppError(
+        "filesystem_policy",
+        "Remote MCP cannot use server filesystem paths; use a public HTTPS URL or Telegram file_id",
+      );
     }
     return { source: record.source, value: record.value };
   }
@@ -287,9 +293,14 @@ function mcpMediaSource(allowUrl: boolean, includePaths: boolean) {
     ...(allowUrl ? (["url"] as const) : []),
     "file_id" as const,
   ];
+  const description = includePaths
+    ? "Use a policy-approved path, a public URL where supported, or a Telegram file_id."
+    : allowUrl
+      ? "Use a public HTTPS URL reachable by Telegram or a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP."
+      : "Use a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP.";
   return z.object({
-    source: z.enum(sources),
-    value: z.string().min(1),
+    source: z.enum(sources).describe(description),
+    value: z.string().min(1).describe(description),
   });
 }
 

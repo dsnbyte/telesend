@@ -79,7 +79,13 @@ describe("MCP interface", () => {
           inputSchema?: {
             properties?: {
               payload?: {
-                properties?: Record<string, { type?: string; properties?: { source?: unknown } }>;
+                properties?: Record<
+                  string,
+                  {
+                    type?: string;
+                    properties?: { source?: unknown; value?: { description?: string } };
+                  }
+                >;
               };
             };
           };
@@ -131,7 +137,10 @@ describe("MCP interface", () => {
           inputSchema?: {
             properties?: {
               payload?: {
-                properties?: Record<string, { properties?: { source?: unknown } }>;
+                properties?: Record<
+                  string,
+                  { properties?: { source?: unknown; value?: { description?: string } } }
+                >;
               };
             };
           };
@@ -150,6 +159,10 @@ describe("MCP interface", () => {
     expect(sourceEnum(tools.find(({ name }) => name === "send_video_note")?.inputSchema)).toEqual([
       "file_id",
     ]);
+    expect(
+      tools.find(({ name }) => name === "send_photo")?.inputSchema?.properties?.payload?.properties
+        ?.photo?.properties?.value?.description,
+    ).toContain("Chat attachments and generated files cannot be uploaded directly");
   });
 
   test("enforces remote scopes before reading or delivering", async () => {
@@ -370,7 +383,10 @@ test("authorizeMcpPayload canonicalizes nested paths", async () => {
 test("authorizeRemoteMcpPayload rejects nested paths and preserves remote sources", async () => {
   await expect(
     authorizeRemoteMcpPayload({ media: [{ media: { source: "path", value: "/tmp/file" } }] }),
-  ).rejects.toThrow("Remote MCP cannot use server filesystem paths");
+  ).rejects.toThrow("Remote MCP cannot use server filesystem paths; use a public HTTPS URL");
+  await expect(
+    authorizeRemoteMcpPayload({ photo: { source: "upload", value: "image bytes" } }),
+  ).rejects.toThrow("chat attachments and generated files cannot be uploaded directly");
   expect(
     await authorizeRemoteMcpPayload({
       photo: { source: "url", value: "https://example.com/photo.jpg" },

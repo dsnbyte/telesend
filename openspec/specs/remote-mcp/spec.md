@@ -61,8 +61,8 @@ The system SHALL expose the existing recipient and bot discovery tools and conte
 - **WHEN** a client with delivery scope invokes a valid message-delivery tool
 - **THEN** the system applies the same delivery validation and returns the same normalized result contract as the local MCP interface
 
-### Requirement: Disallow server-local files over remote MCP
-The system SHALL reject every remote MCP media source whose type is `path`. Remote MCP SHALL accept only the source types already supported without server filesystem access: Telegram `file_id`, and URL where that message type supports URL media.
+### Requirement: Disallow server-local files and binary uploads over remote MCP
+The system SHALL reject every remote MCP media source whose type is `path`. Remote MCP SHALL accept only the source types already supported without server filesystem access: Telegram `file_id`, and URL where that message type supports URL media. It SHALL NOT accept raw bytes, base64/data URLs, or an upload reference for a chat attachment or generated file.
 
 #### Scenario: Remote client submits a server path
 - **WHEN** a remote MCP tool payload contains a media source with type `path`
@@ -71,6 +71,10 @@ The system SHALL reject every remote MCP media source whose type is `path`. Remo
 #### Scenario: Remote client submits an allowed URL source
 - **WHEN** a remote MCP tool payload uses a URL source for a message type that supports URL media
 - **THEN** the system validates and delivers it without reading a server-local file
+
+#### Scenario: Hosted chat attachment has no public URL
+- **WHEN** a hosted MCP client attempts to send a chat attachment or generated file without a public URL or Telegram `file_id`
+- **THEN** the system rejects it without storing or uploading file bytes
 
 ### Requirement: Provide deployment and connector guidance
 The system SHALL document public deployment prerequisites, including HTTPS termination, OAuth client redirect registration, token-secret handling, and the endpoint registration steps for ChatGPT and Claude.ai.

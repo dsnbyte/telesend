@@ -195,6 +195,20 @@ Remote MCP is a separate service from the local stdio command and REST API:
 - `telesend mcp-serve` exposes Streamable HTTP at `/mcp`, requires OAuth 2.1, and accepts only `url` or `file_id` media sources.
 - `telesend serve` remains the `x-api-key` REST service. Its `TELESEND_API_KEY` is never used by an MCP connector.
 
+Remote MCP cannot receive a ChatGPT or Claude.ai chat attachment, including a generated image, as file bytes or a local path. To send one, first make it available through a public HTTPS URL that Telegram can fetch, then use `source: "url"`; alternatively, reuse a Telegram `file_id`. Remote MCP does not accept raw bytes, base64/data URLs, or a generic file-upload endpoint.
+
+```json
+{
+  "to": "ops",
+  "payload": {
+    "photo": {
+      "source": "url",
+      "value": "https://files.example.com/daily-chart.png"
+    }
+  }
+}
+```
+
 Put the public HTTPS origin and a password for the owner consent screen in `.env` in the directory where Telesend runs:
 
 ```sh
