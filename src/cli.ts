@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { AppError, redactSecrets } from "./core/errors.ts";
+import type { DeliveryResult, RecipientAlias, SafeBot } from "./core/result.ts";
 import type { AliasRepository } from "./db/alias-repository.ts";
 import type { BotService } from "./services/bot-service.ts";
 import type { DeliveryService } from "./services/delivery-service.ts";
@@ -29,37 +30,44 @@ export async function runCli(
   io: CliIo = { log: console.log, error: console.error },
 ): Promise<number> {
   try {
-    if (args.length === 0 || args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
+    const json = args.includes("--json");
+    const commandArgs = args.filter((arg) => arg !== "--json");
+    if (
+      commandArgs.length === 0 ||
+      commandArgs[0] === "help" ||
+      commandArgs[0] === "--help" ||
+      commandArgs[0] === "-h"
+    ) {
       io.log(help());
       return 0;
     }
-    if (args[0] === "--version" || args[0] === "version") {
+    if (commandArgs[0] === "--version" || commandArgs[0] === "-V" || commandArgs[0] === "version") {
       io.log(VERSION);
       return 0;
     }
 
-    switch (args[0]) {
+    switch (commandArgs[0]) {
       case "bot":
-        await botCommand(args.slice(1), services, io);
+        await botCommand(commandArgs.slice(1), services, io, json);
         return 0;
       case "alias":
-        aliasCommand(args.slice(1), services, io);
+        aliasCommand(commandArgs.slice(1), services, io, json);
         return 0;
       case "msg":
       case "message":
-        await messageCommand(args.slice(1), services, io);
+        await messageCommand(commandArgs.slice(1), services, io, json);
         return 0;
       case "serve":
-        await serveCommand(args.slice(1), services);
+        await serveCommand(commandArgs.slice(1), services);
         return 0;
       case "mcp":
-        await mcpCommand(args.slice(1), services);
+        await mcpCommand(commandArgs.slice(1), services);
         return 0;
       case "mcp-serve":
-        await remoteMcpCommand(args.slice(1), services);
+        await remoteMcpCommand(commandArgs.slice(1), services);
         return 0;
       default:
-        throw new AppError("validation", `Unknown command: ${args[0]}`);
+        throw new AppError("validation", `Unknown command: ${commandArgs[0]}`);
     }
   } catch (error) {
     io.error(formatCliError(error));
@@ -67,77 +75,92 @@ export async function runCli(
   }
 }
 
-async function botCommand(args: string[], services: CliServices, io: CliIo): Promise<void> {
+async function botCommand(
+  args: string[],
+  services: CliServices,
+  io: CliIo,
+  json: boolean,
+): Promise<void> {
   switch (args[0]) {
     case "add": {
       if (args.length !== 1) throw new AppError("validation", "Usage: telesend bot add");
       const token = await (services.readSecret ?? readSecret)();
-      io.log(formatJson(await services.bots.register(token)));
+      const bot = await services.bots.register(token);
+      print(io, json, bot, formatBot(bot, "Added"));
       return;
     }
-    case "list":
+    case "list": {
       if (args.length !== 1) throw new AppError("validation", "Usage: telesend bot list");
-      io.log(formatJson(services.bots.list()));
+      const bots = services.bots.list();
+      print(io, json, bots, formatBotList(bots));
       return;
-    case "default":
-      io.log(formatJson(services.bots.setDefault(required(args[1], "Bot username is required"))));
+    }
+    case "default": {
+      const bot = services.bots.setDefault(required(args[1], "Bot username is required"));
+      print(io, json, bot, `Default bot set to @${bot.username}`);
       return;
-    case "remove":
-      io.log(formatJson(services.bots.remove(required(args[1], "Bot username is required"))));
+    }
+    case "remove": {
+      const bot = services.bots.remove(required(args[1], "Bot username is required"));
+      print(io, json, bot, formatBot(bot, "Removed"));
       return;
+    }
     default:
       throw new AppError("validation", "Usage: telesend bot <add|list|default|remove>");
   }
 }
 
-function aliasCommand(args: string[], services: CliServices, io: CliIo): void {
+function aliasCommand(args: string[], services: CliServices, io: CliIo, json: boolean): void {
   switch (args[0]) {
     case "add": {
       const name = required(args[1], "Alias name is required");
       const chatId = required(args[2], "Chat ID is required");
       const options = parseOptions(args.slice(3));
-      io.log(
-        formatJson(
-          services.aliases.create({
-            name,
-            chatId,
-            ...optionalThread(options),
-          }),
-        ),
-      );
+      const alias = services.aliases.create({
+        name,
+        chatId,
+        ...optionalThread(options),
+      });
+      print(io, json, alias, formatAlias(alias, "Added"));
       return;
     }
-    case "list":
-      io.log(formatJson(services.aliases.list()));
+    case "list": {
+      const aliases = services.aliases.list();
+      print(io, json, aliases, formatAliasList(aliases));
       return;
+    }
     case "update": {
       const currentName = required(args[1], "Alias name is required");
       const current = services.aliases.find(currentName);
       if (!current) throw new AppError("not_found", `Alias "${currentName}" was not found`);
       const options = parseOptions(args.slice(2));
-      io.log(
-        formatJson(
-          services.aliases.update(currentName, {
-            name: options.name ?? current.name,
-            chatId: options["chat-id"] ?? current.chatId,
-            messageThreadId:
-              options["thread-id"] === undefined
-                ? current.messageThreadId
-                : parsePositiveInteger(options["thread-id"], "thread-id"),
-          }),
-        ),
-      );
+      const alias = services.aliases.update(currentName, {
+        name: options.name ?? current.name,
+        chatId: options["chat-id"] ?? current.chatId,
+        messageThreadId:
+          options["thread-id"] === undefined
+            ? current.messageThreadId
+            : parsePositiveInteger(options["thread-id"], "thread-id"),
+      });
+      print(io, json, alias, formatAlias(alias, "Updated"));
       return;
     }
-    case "remove":
-      io.log(formatJson(services.aliases.remove(required(args[1], "Alias name is required"))));
+    case "remove": {
+      const alias = services.aliases.remove(required(args[1], "Alias name is required"));
+      print(io, json, alias, formatAlias(alias, "Removed"));
       return;
+    }
     default:
       throw new AppError("validation", "Usage: telesend alias <add|list|update|remove>");
   }
 }
 
-async function messageCommand(args: string[], services: CliServices, io: CliIo): Promise<void> {
+async function messageCommand(
+  args: string[],
+  services: CliServices,
+  io: CliIo,
+  json: boolean,
+): Promise<void> {
   const type = required(args[0], "Message type is required");
   const operation = getCatalogOperation(type);
   const to = required(args[1], "Recipient alias or chat ID is required");
@@ -171,7 +194,7 @@ async function messageCommand(args: string[], services: CliServices, io: CliIo):
       ? { messageThreadId: parsePositiveInteger(options["thread-id"], "thread-id") }
       : {}),
   });
-  io.log(formatJson(result));
+  print(io, json, result, formatDelivery(result));
 }
 
 async function serveCommand(args: string[], services: CliServices): Promise<void> {
@@ -203,13 +226,18 @@ function help(): string {
   return `Telesend ${VERSION}
 
 Usage:
-  telesend bot add|list|default|remove
-  telesend alias add <name> <chat-id> [--thread-id <id>]
-  telesend alias list|update|remove
-  telesend msg|message <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
+  telesend [--json] bot add|list|default|remove
+  telesend [--json] alias add <name> <chat-id> [--thread-id <id>]
+  telesend [--json] alias list|update|remove
+  telesend [--json] msg|message <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
   telesend serve [--host <host>] [--port <port>]
   telesend mcp [--config <path>] [--allow-path <path> ...]
   telesend mcp-serve [--host <host>] [--port <port>]
+  telesend --version
+
+Options:
+  --json           Print JSON instead of human-readable text
+  -V, --version    Print the installed version
 
 Message types:
   ${types}`;
@@ -351,8 +379,87 @@ function getCatalogOperation(type: string) {
   }
 }
 
+function print(io: CliIo, json: boolean, data: unknown, text: string): void {
+  io.log(json ? formatJson(data) : text);
+}
+
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function formatBot(bot: SafeBot, action: "Added" | "Removed"): string {
+  return [
+    `${action} bot @${bot.username}`,
+    formatFields([
+      ["Name", bot.name],
+      ["Telegram ID", bot.telegramId],
+      ["Default", yesNo(bot.isDefault)],
+    ]),
+  ].join("\n");
+}
+
+function formatBotList(bots: SafeBot[]): string {
+  if (bots.length === 0) return "No bots registered.";
+  return formatTable(
+    ["USERNAME", "NAME", "ID", "DEFAULT"],
+    bots.map((bot) => [bot.username, bot.name, bot.telegramId, yesNo(bot.isDefault)]),
+  );
+}
+
+function formatAlias(alias: RecipientAlias, action: "Added" | "Updated" | "Removed"): string {
+  return [
+    `${action} alias ${alias.name}`,
+    formatFields([
+      ["Chat ID", alias.chatId],
+      ["Thread", alias.messageThreadId == null ? "-" : String(alias.messageThreadId)],
+    ]),
+  ].join("\n");
+}
+
+function formatAliasList(aliases: RecipientAlias[]): string {
+  if (aliases.length === 0) return "No aliases registered.";
+  return formatTable(
+    ["NAME", "CHAT ID", "THREAD"],
+    aliases.map((alias) => [
+      alias.name,
+      alias.chatId,
+      alias.messageThreadId == null ? "-" : String(alias.messageThreadId),
+    ]),
+  );
+}
+
+function formatDelivery(result: DeliveryResult): string {
+  const fields: Array<[string, string]> = [
+    ["Bot", `@${result.bot}`],
+    ["Chat ID", result.chatId],
+  ];
+  if (result.messageThreadId !== undefined) {
+    fields.push(["Thread", String(result.messageThreadId)]);
+  }
+  if (result.messageId !== undefined) {
+    fields.push(["Message ID", String(result.messageId)]);
+  }
+  return ["Message sent", formatFields(fields)].join("\n");
+}
+
+function formatFields(fields: Array<[string, string]>): string {
+  const width = Math.max(...fields.map(([label]) => label.length));
+  return fields.map(([label, value]) => `${label.padEnd(width)}  ${value}`).join("\n");
+}
+
+function formatTable(headers: string[], rows: string[][]): string {
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => (row[index] ?? "").length)),
+  );
+  const line = (cells: string[]) =>
+    cells.map((cell, index) => cell.padEnd(widths[index] as number)).join("  ");
+  return [line(headers), line(widths.map((width) => "-".repeat(width))), ...rows.map(line)].join(
+    "\n",
+  );
+}
+
+function yesNo(value: boolean): string {
+  return value ? "yes" : "no";
 }
 
 function formatCliError(error: unknown): string {

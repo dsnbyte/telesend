@@ -58,6 +58,13 @@ install -m 755 dist/telesend ~/.local/bin/telesend
 During development, run `bun run src/index.ts` or use `bun link`.
 </details>
 
+Confirm the installed version:
+
+```sh
+telesend --version
+telesend -V
+```
+
 ## Quick Start
 
 **1. Add a bot** — paste your BotFather token at the prompt. The first bot becomes the default.
@@ -80,6 +87,13 @@ telesend msg text ops "Hello from Telesend!"
 ```
 
 That's it. Read on for the full feature set.
+
+CLI commands print human-readable text. Lists are shown as tables. Pass `--json` for machine-readable JSON. MCP tools and the REST API always return JSON.
+
+```sh
+telesend bot list
+telesend alias list --json
+```
 
 ## CLI
 

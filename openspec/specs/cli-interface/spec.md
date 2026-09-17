@@ -50,3 +50,33 @@ The CLI SHALL provide separate commands to start the REST server and the stdio M
 - **WHEN** an operator runs `telesend mcp` with valid MCP configuration
 - **THEN** the process serves MCP over standard input and output without protocol-breaking log output on standard output
 
+### Requirement: Print human-readable CLI output
+The CLI SHALL print human-readable text by default. List commands SHALL render aligned tables. The `--json` flag SHALL print the structured JSON representation of the same result. MCP and REST interfaces SHALL continue to return JSON and SHALL ignore this CLI formatting choice.
+
+#### Scenario: List bots as a table
+- **WHEN** an operator runs `telesend bot list` with at least one registered bot
+- **THEN** the CLI prints an aligned table of username, name, Telegram ID, and default status without wrapping the rows in JSON
+
+#### Scenario: List aliases as a table
+- **WHEN** an operator runs `telesend alias list` with at least one alias
+- **THEN** the CLI prints an aligned table of name, chat ID, and thread without wrapping the rows in JSON
+
+#### Scenario: Request JSON output
+- **WHEN** an operator passes `--json` to a bot, alias, or message command
+- **THEN** the CLI prints pretty-printed JSON for that command's result
+
+#### Scenario: Empty list
+- **WHEN** an operator lists bots or aliases and none exist
+- **THEN** the CLI prints a concise empty-state message instead of a table or JSON array
+
+### Requirement: Print the installed version
+The CLI SHALL print the installed Telesend version to standard output and exit successfully when invoked with `--version` or `-V`.
+
+#### Scenario: Print version with the long flag
+- **WHEN** an operator runs `telesend --version`
+- **THEN** the CLI prints the installed version and exits 0
+
+#### Scenario: Print version with the short flag
+- **WHEN** an operator runs `telesend -V`
+- **THEN** the CLI prints the installed version and exits 0
+

@@ -1,6 +1,6 @@
 {
   "name": "telesend",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@types/bun": "1.4.2",
