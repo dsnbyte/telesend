@@ -337,7 +337,7 @@ function consentPage(request: AuthorizationRequest): string {
         margin: 0;
         display: grid;
         place-items: center;
-        padding: 1.5rem;
+        padding: 1.5rem 1.5rem 7rem;
         background: #f6f8fc;
         color: #172033;
       }
@@ -353,12 +353,12 @@ function consentPage(request: AuthorizationRequest): string {
         display: flex;
         justify-content: center;
         align-items: center;
-        margin-bottom: 0.25rem;
+        margin-bottom: 1.25rem;
       }
       .app-icon {
-        width: 4.5rem;
-        height: 4.5rem;
-        border-radius: 1rem;
+        width: 5.25rem;
+        height: 5.25rem;
+        border-radius: 1.125rem;
         object-fit: contain;
         box-shadow: 0 0.5rem 1.25rem rgb(30 47 80 / 12%);
         border: 1px solid #dfe5ef;
@@ -368,12 +368,14 @@ function consentPage(request: AuthorizationRequest): string {
         font-size: 1.375rem;
         line-height: 1.35;
         letter-spacing: -0.02em;
+        text-align: center;
       }
       p {
         margin: 0.625rem 0 1.5rem;
         color: #5a667c;
         font-size: 0.9375rem;
         line-height: 1.5;
+        text-align: center;
       }
       form { display: grid; gap: 1rem; }
       label {
@@ -402,7 +404,7 @@ function consentPage(request: AuthorizationRequest): string {
         min-height: 2.75rem;
         border: 0;
         border-radius: 0.625rem;
-        background: #2563eb;
+        background: #408EC7;
         color: #fff;
         cursor: pointer;
         font: inherit;
@@ -412,11 +414,15 @@ function consentPage(request: AuthorizationRequest): string {
       button:hover { background: #1d4ed8; }
       button:active { transform: translateY(1px); }
       button:focus-visible { outline: 3px solid rgb(37 99 235 / 30%); outline-offset: 3px; }
-      @media (max-width: 30rem) { main { padding: 1.5rem; } }
+      @media (max-width: 30rem) {
+        body { padding: 1.5rem 1rem 3rem; }
+        main { padding: 1.5rem; }
+      }
     </style>
   </head>
   <body>
     <main>
+      <div class="app-icon-wrap"><img src="/icon.png" alt="Telesend" class="app-icon" width="84" height="84"></div>
       <h1>Authorize ${escapeHtml(request.clientName)}</h1>
       <p>Requested access: ${escapeHtml(request.scopes.join(", "))}</p>
       <form method="post" action="/authorize">${Object.entries(hidden)
@@ -426,7 +432,7 @@ function consentPage(request: AuthorizationRequest): string {
         )
         .join(
           "",
-        )}<div class="app-icon-wrap"><img src="/icon.png" alt="Telesend" class="app-icon" width="72" height="72"></div><label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form>
+        )}<label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form>
     </main>
   </body>
 </html>`;

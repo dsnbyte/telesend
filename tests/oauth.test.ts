@@ -117,6 +117,8 @@ describe("remote MCP OAuth", () => {
     expect(consentHtml).toContain("Authorize Claude");
     expect(consentHtml).toContain('<link rel="icon" type="image/png" href="/icon.png">');
     expect(consentHtml).toContain('<img src="/icon.png" alt="Telesend" class="app-icon"');
+    expect(consentHtml.indexOf("<main>")).toBeLessThan(consentHtml.indexOf('class="app-icon"'));
+    expect(consentHtml.indexOf('class="app-icon"')).toBeLessThan(consentHtml.indexOf("<h1"));
 
     const denied = await oauth.handle(
       new Request("https://local/authorize", {
