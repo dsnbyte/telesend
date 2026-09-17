@@ -21,6 +21,17 @@ The MCP server SHALL run over standard input and output and SHALL expose categor
 - **WHEN** an MCP client calls `list_aliases`
 - **THEN** each alias includes `type` `group` or `private` so the client can send to every group alias
 
+### Requirement: Require explicit confirmation before bulk alias delivery
+The MCP server SHALL instruct clients to ask for confirmation and wait for an explicit affirmative response before sending when the user intends to send a message to all aliases or all groups.
+
+#### Scenario: Request delivery to every alias
+- **WHEN** a user intends to send a message to all aliases or all groups
+- **THEN** the client asks for confirmation and waits for an explicit affirmative response before sending
+
+#### Scenario: Confirm delivery to every alias
+- **WHEN** the user explicitly confirms the all-alias or all-group delivery
+- **THEN** the client may send the message
+
 #### Scenario: Attempt administration through MCP
 - **WHEN** an MCP client requests bot or alias mutation
 - **THEN** no such tool is available
@@ -84,4 +95,3 @@ The MCP server SHALL load policy from `~/.config/telesend/config.toml` by defaul
 #### Scenario: Config is invalid
 - **WHEN** the selected TOML file cannot be parsed or fails schema validation
 - **THEN** MCP prints an actionable error to standard error and exits nonzero before serving requests
-

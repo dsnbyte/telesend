@@ -28,6 +28,7 @@ const SERVER_INSTRUCTIONS = [
   "list_aliases and list_bots are lookup helpers. Each alias has type group or private (negative chat IDs are groups, including supergroups and channels).",
   "Every send_* tool accepts payload.disable_notification: true for silent delivery.",
   "to: chat ID, @username, or alias from list_aliases. Omit bot to use the default. To message every group, list_aliases then send to each alias whose type is group.",
+  "If the user intends to send a message to all aliases or all groups, ask for confirmation and wait for an explicit affirmative response before sending.",
   "Call get_telegram_parameter_doc only for advanced Telegram options not present in the standard tool parameters.",
 ].join("\n");
 

@@ -75,6 +75,9 @@ describe("MCP interface", () => {
     expect(client.initializeResult.instructions).toContain("type group or private");
     expect(client.initializeResult.instructions).toContain("payload.disable_notification: true");
     expect(client.initializeResult.instructions).toContain(
+      "If the user intends to send a message to all aliases or all groups",
+    );
+    expect(client.initializeResult.instructions).toContain(
       "Call get_telegram_parameter_doc only for advanced Telegram options",
     );
     expect(client.initializeResult.instructions).not.toContain("plain text (add draft_id");
@@ -147,6 +150,9 @@ describe("MCP interface", () => {
     applications.push(app);
     const client = await TestMcpClient.connect(
       createRemoteMcpServer(app, ["mcp:read", "mcp:send"]),
+    );
+    expect(client.initializeResult.instructions).toContain(
+      "ask for confirmation and wait for an explicit affirmative response before sending",
     );
     const result = await client.request("tools/list", {});
     const tools = (
