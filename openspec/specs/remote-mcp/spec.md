@@ -39,6 +39,21 @@ The system SHALL require OAuth 2.1 bearer-token authorization before it initiali
 - **WHEN** an authorized user revokes a remote MCP grant
 - **THEN** access and refresh tokens associated with that grant can no longer authorize remote MCP requests
 
+### Requirement: Require a hashed remote-MCP owner password
+The system SHALL require `TELESEND_MCP_OWNER_PASSWORD_HASH` to start `telesend mcp-serve`. The value SHALL be a Bun-compatible password hash. It SHALL provide `bun run mcp:hash-password` to interactively generate the hash without echoing the entered password.
+
+#### Scenario: Operator configures a generated password hash
+- **WHEN** an operator stores a Bun-compatible password hash in `TELESEND_MCP_OWNER_PASSWORD_HASH`
+- **THEN** `telesend mcp-serve` uses it to verify the OAuth owner consent password
+
+#### Scenario: Operator omits the password hash
+- **WHEN** `telesend mcp-serve` starts without `TELESEND_MCP_OWNER_PASSWORD_HASH`
+- **THEN** it exits before binding a listener with an actionable configuration error
+
+#### Scenario: Operator generates a password hash
+- **WHEN** an operator runs `bun run mcp:hash-password` in an interactive terminal
+- **THEN** the command confirms the password without echoing it and writes a complete `TELESEND_MCP_OWNER_PASSWORD_HASH` assignment to standard output
+
 ### Requirement: Scope remote MCP access
 The system SHALL issue remote MCP grants with separate discovery and message-delivery scopes. It SHALL allow discovery tools only with discovery scope and delivery tools only with delivery scope.
 

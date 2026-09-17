@@ -209,11 +209,17 @@ Remote MCP cannot receive a ChatGPT or Claude.ai chat attachment, including a ge
 }
 ```
 
-Put the public HTTPS origin and a password for the owner consent screen in `.env` in the directory where Telesend runs:
+Generate a password hash in a terminal, then put the public HTTPS origin and generated value in `.env` in the directory where Telesend runs:
+
+```sh
+bun run mcp:hash-password
+```
+
+The command prompts twice without echoing the password. It prints one `TELESEND_MCP_OWNER_PASSWORD_HASH=...` line; copy that complete line into `.env`:
 
 ```sh
 TELESEND_MCP_PUBLIC_URL=https://telesend.example.com
-TELESEND_MCP_OWNER_PASSWORD=choose-a-long-unique-password
+TELESEND_MCP_OWNER_PASSWORD_HASH=$argon2id$...
 ```
 
 Bun automatically loads `.env`; shell or process-supervisor variables take precedence. Start the listener with:
@@ -223,8 +229,6 @@ telesend mcp-serve
 ```
 
 It listens on `http://127.0.0.1:3100` by default. Use `--host` or `--port` only when needed. Keep `.env` out of version control and owner-readable only (`chmod 600 .env`). `TELESEND_MCP_PUBLIC_URL` must be an HTTPS origin without a path, query, or embedded credentials. The connector URL is `https://telesend.example.com/mcp`. The same public origin must also route the OAuth endpoints `/authorize`, `/token`, `/register`, `/revoke`, and `/.well-known/*` to this listener.
-
-For a process supervisor or secret manager, `TELESEND_MCP_OWNER_PASSWORD_HASH` remains supported and takes precedence over `TELESEND_MCP_OWNER_PASSWORD`.
 
 The reverse proxy must:
 
@@ -244,7 +248,7 @@ Do not put an access token, password, authorization code, or `TELESEND_API_KEY` 
 ## Operations and backup
 
 - Run the REST service as a dedicated unprivileged user and keep its data/config directories owner-only.
-- Run remote MCP as the same dedicated user so it opens the same owner-only database, and keep its owner password or hash in an owner-only `.env`, process supervisor, or secret manager.
+- Run remote MCP as the same dedicated user so it opens the same owner-only database, and keep its owner-password hash in an owner-only `.env`, process supervisor, or secret manager.
 - Inject `TELESEND_API_KEY` from the process supervisor or secret manager; do not put it in command arguments.
 - Terminate HTTPS at a trusted reverse proxy and bind Telesend to a private or loopback address.
 - Back up the database with SQLite's online backup command while the service may be running: `sqlite3 telesend.db ".backup telesend-backup.db"`. Copying a live WAL database as one file may produce an inconsistent backup.
