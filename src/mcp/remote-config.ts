@@ -1,4 +1,5 @@
 import { AppError } from "../core/errors.ts";
+import { decodeOwnerPasswordHash } from "./owner-password-hash.ts";
 
 export interface RemoteMcpConfig {
   ownerPasswordHash: string;
@@ -29,15 +30,24 @@ export function loadRemoteMcpConfig(
     throw new AppError("configuration", "TELESEND_MCP_PUBLIC_URL must be an HTTPS origin");
   }
 
-  const ownerPasswordHash = environment.TELESEND_MCP_OWNER_PASSWORD_HASH?.trim();
-  if (!ownerPasswordHash) {
-    throw new AppError("configuration", "TELESEND_MCP_OWNER_PASSWORD_HASH is required");
+  const configuredOwnerPasswordHash = environment.TELESEND_MCP_OWNER_PASSWORD_HASH?.trim();
+  if (configuredOwnerPasswordHash) {
+    const ownerPasswordHash = decodeOwnerPasswordHash(configuredOwnerPasswordHash);
+    if (!ownerPasswordHash || !/^\$(?:argon2|2[aby]\$)/.test(ownerPasswordHash)) {
+      throw new AppError(
+        "configuration",
+        "TELESEND_MCP_OWNER_PASSWORD_HASH must contain a Bun-compatible password hash",
+      );
+    }
+    return { ownerPasswordHash, publicUrl };
   }
-  if (!/^\$(?:argon2|2[aby]\$)/.test(ownerPasswordHash)) {
+
+  const ownerPassword = environment.TELESEND_MCP_OWNER_PASSWORD;
+  if (!ownerPassword) {
     throw new AppError(
       "configuration",
-      "TELESEND_MCP_OWNER_PASSWORD_HASH must contain a Bun-compatible password hash",
+      "TELESEND_MCP_OWNER_PASSWORD or TELESEND_MCP_OWNER_PASSWORD_HASH is required",
     );
   }
-  return { ownerPasswordHash, publicUrl };
+  return { ownerPasswordHash: Bun.password.hashSync(ownerPassword), publicUrl };
 }

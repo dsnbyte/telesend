@@ -39,15 +39,23 @@ The system SHALL require OAuth 2.1 bearer-token authorization before it initiali
 - **WHEN** an authorized user revokes a remote MCP grant
 - **THEN** access and refresh tokens associated with that grant can no longer authorize remote MCP requests
 
-### Requirement: Require a hashed remote-MCP owner password
-The system SHALL require `TELESEND_MCP_OWNER_PASSWORD_HASH` to start `telesend mcp-serve`. The value SHALL be a Bun-compatible password hash. It SHALL provide `bun run mcp:hash-password` to interactively generate the hash without echoing the entered password.
+### Requirement: Require a remote-MCP owner password
+The system SHALL require either `TELESEND_MCP_OWNER_PASSWORD` or `TELESEND_MCP_OWNER_PASSWORD_HASH` to start `telesend mcp-serve`. `TELESEND_MCP_OWNER_PASSWORD` SHALL be hashed before use. `TELESEND_MCP_OWNER_PASSWORD_HASH` SHALL accept a Bun-compatible password hash or its Base64URL representation and take precedence whenever both variables are set. It SHALL provide `bun run mcp:hash-password` to interactively generate a Base64URL representation without echoing the entered password.
 
 #### Scenario: Operator configures a generated password hash
-- **WHEN** an operator stores a Bun-compatible password hash in `TELESEND_MCP_OWNER_PASSWORD_HASH`
+- **WHEN** an operator stores a generated Base64URL representation or a Bun-compatible password hash in `TELESEND_MCP_OWNER_PASSWORD_HASH`
 - **THEN** `telesend mcp-serve` uses it to verify the OAuth owner consent password
 
-#### Scenario: Operator omits the password hash
-- **WHEN** `telesend mcp-serve` starts without `TELESEND_MCP_OWNER_PASSWORD_HASH`
+#### Scenario: Operator configures a plaintext password
+- **WHEN** an operator stores an owner password in `TELESEND_MCP_OWNER_PASSWORD` without setting `TELESEND_MCP_OWNER_PASSWORD_HASH`
+- **THEN** `telesend mcp-serve` hashes it and uses the result to verify the OAuth owner consent password
+
+#### Scenario: Operator configures both password variables
+- **WHEN** an operator sets both `TELESEND_MCP_OWNER_PASSWORD` and `TELESEND_MCP_OWNER_PASSWORD_HASH`
+- **THEN** `telesend mcp-serve` uses `TELESEND_MCP_OWNER_PASSWORD_HASH`
+
+#### Scenario: Operator omits the owner password
+- **WHEN** `telesend mcp-serve` starts without `TELESEND_MCP_OWNER_PASSWORD` and `TELESEND_MCP_OWNER_PASSWORD_HASH`
 - **THEN** it exits before binding a listener with an actionable configuration error
 
 #### Scenario: Operator generates a password hash

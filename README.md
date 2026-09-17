@@ -228,6 +228,8 @@ Bun automatically loads `.env`; shell or process-supervisor variables take prece
 telesend mcp-serve
 ```
 
+For short-lived local testing, you can set `TELESEND_MCP_OWNER_PASSWORD` instead; Telesend hashes it when the listener starts. Prefer the precomputed `TELESEND_MCP_OWNER_PASSWORD_HASH` for normal deployments, because plaintext environment values are easier to expose. If both variables are set, `TELESEND_MCP_OWNER_PASSWORD_HASH` always takes precedence.
+
 It listens on `http://127.0.0.1:3100` by default. Use `--host` or `--port` only when needed. Keep `.env` out of version control and owner-readable only (`chmod 600 .env`). `TELESEND_MCP_PUBLIC_URL` must be an HTTPS origin without a path, query, or embedded credentials. The connector URL is `https://telesend.example.com/mcp`. The same public origin must also route the OAuth endpoints `/authorize`, `/token`, `/register`, `/revoke`, and `/.well-known/*` to this listener.
 
 The reverse proxy must:
