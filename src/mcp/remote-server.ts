@@ -58,8 +58,9 @@ export function createRemoteMcpHandler(
   oauth: TelesendOAuth,
   config: RemoteMcpConfig,
 ): McpHttpHandler {
+  const iconUrl = new URL("/icon.png", config.publicUrl).href;
   const mcp = createMcpHandler(
-    ({ authInfo }) => createRemoteMcpServer(app, authInfo?.scopes ?? []),
+    ({ authInfo }) => createRemoteMcpServer(app, authInfo?.scopes ?? [], iconUrl),
     { onerror: () => undefined },
   );
   const gate = requireBearerAuth({

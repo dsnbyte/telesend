@@ -6,6 +6,7 @@ import { AppError, toAppError } from "../core/errors.ts";
 import { MESSAGE_CATALOG, type MessageOperation, type MessageType } from "../telegram/catalog.ts";
 import { loadMcpConfig } from "./config.ts";
 import { FilePolicy } from "./file-policy.ts";
+import { ICON_DATA_URL } from "./icon.ts";
 
 export interface McpOptions {
   allowPaths: string[];
@@ -62,18 +63,37 @@ export function createMcpServer(app: Application, filePolicy: FilePolicy): McpSe
   });
 }
 
-export function createRemoteMcpServer(app: Application, scopes: readonly string[]): McpServer {
-  return createToolServer(app, {
-    authorizePayload: authorizeRemoteMcpPayload,
-    canRead: scopes.includes("mcp:read"),
-    canSend: scopes.includes("mcp:send"),
-    includePaths: false,
-  });
+export function createRemoteMcpServer(
+  app: Application,
+  scopes: readonly string[],
+  iconUrl?: string,
+): McpServer {
+  return createToolServer(
+    app,
+    {
+      authorizePayload: authorizeRemoteMcpPayload,
+      canRead: scopes.includes("mcp:read"),
+      canSend: scopes.includes("mcp:send"),
+      includePaths: false,
+    },
+    iconUrl,
+  );
 }
 
-function createToolServer(app: Application, policy: McpToolPolicy): McpServer {
+function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: string): McpServer {
   const server = new McpServer(
-    { name: "telesend", version: "0.1.0" },
+    {
+      name: "telesend",
+      version: "0.1.0",
+      description: "Send Telegram bot messages via CLI, MCP, and REST",
+      icons: [
+        {
+          src: iconUrl ?? ICON_DATA_URL,
+          mimeType: "image/png",
+          sizes: ["512x512"],
+        },
+      ],
+    },
     { instructions: SERVER_INSTRUCTIONS },
   );
 

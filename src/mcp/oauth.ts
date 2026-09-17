@@ -5,6 +5,7 @@ import {
   OAuthErrorCode,
   type OAuthTokenVerifier,
 } from "@modelcontextprotocol/server";
+import { ICON_PNG_BUFFER } from "./icon.ts";
 import type { OAuthRepository } from "./oauth-repository.ts";
 import type { RemoteMcpConfig } from "./remote-config.ts";
 
@@ -37,6 +38,21 @@ export class TelesendOAuth implements OAuthTokenVerifier {
   async handle(request: Request): Promise<Response | null> {
     const { pathname } = new URL(request.url);
     if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      (pathname === "/icon.png" ||
+        pathname === "/favicon.ico" ||
+        pathname === "/apple-touch-icon.png" ||
+        pathname === "/telesend-icon.png")
+    ) {
+      return new Response(request.method === "HEAD" ? null : ICON_PNG_BUFFER, {
+        headers: {
+          "content-type": "image/png",
+          "cache-control": "public, max-age=86400, immutable",
+          "content-length": ICON_PNG_BUFFER.byteLength.toString(),
+        },
+      });
+    }
+    if (
       request.method === "GET" &&
       (pathname === "/.well-known/oauth-protected-resource" ||
         pathname === "/.well-known/oauth-protected-resource/mcp")
@@ -45,6 +61,8 @@ export class TelesendOAuth implements OAuthTokenVerifier {
         resource: this.endpoint("/mcp"),
         authorization_servers: [this.config.publicUrl.origin],
         scopes_supported: SCOPES,
+        logo_uri: this.endpoint("/icon.png"),
+        icon_uri: this.endpoint("/icon.png"),
       });
     }
     if (
@@ -63,6 +81,8 @@ export class TelesendOAuth implements OAuthTokenVerifier {
         token_endpoint_auth_methods_supported: ["none"],
         code_challenge_methods_supported: ["S256"],
         scopes_supported: SCOPES,
+        logo_uri: this.endpoint("/icon.png"),
+        icon_uri: this.endpoint("/icon.png"),
       });
     }
     if (pathname === "/register" && request.method === "POST") return this.register(request);
@@ -304,6 +324,8 @@ function consentPage(request: AuthorizationRequest): string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Authorize Telesend</title>
+    <link rel="icon" type="image/png" href="/icon.png">
+    <link rel="apple-touch-icon" href="/icon.png">
     <style>
       :root {
         color-scheme: light;
@@ -326,6 +348,20 @@ function consentPage(request: AuthorizationRequest): string {
         border: 1px solid #dfe5ef;
         border-radius: 1rem;
         box-shadow: 0 1rem 2.5rem rgb(30 47 80 / 10%);
+      }
+      .app-icon-wrap {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 0.25rem;
+      }
+      .app-icon {
+        width: 4.5rem;
+        height: 4.5rem;
+        border-radius: 1rem;
+        object-fit: contain;
+        box-shadow: 0 0.5rem 1.25rem rgb(30 47 80 / 12%);
+        border: 1px solid #dfe5ef;
       }
       h1 {
         margin: 0;
@@ -390,7 +426,7 @@ function consentPage(request: AuthorizationRequest): string {
         )
         .join(
           "",
-        )}<label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form>
+        )}<div class="app-icon-wrap"><img src="/icon.png" alt="Telesend" class="app-icon" width="72" height="72"></div><label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form>
     </main>
   </body>
 </html>`;

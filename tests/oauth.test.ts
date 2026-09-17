@@ -67,6 +67,7 @@ describe("remote MCP OAuth", () => {
     expect(await protectedMetadata?.json()).toMatchObject({
       resource: "https://mcp.example.com/mcp",
       authorization_servers: ["https://mcp.example.com"],
+      logo_uri: "https://mcp.example.com/icon.png",
     });
     const serverMetadata = await oauth.handle(
       new Request("https://local/.well-known/oauth-authorization-server"),
@@ -74,7 +75,25 @@ describe("remote MCP OAuth", () => {
     expect(await serverMetadata?.json()).toMatchObject({
       authorization_endpoint: "https://mcp.example.com/authorize",
       registration_endpoint: "https://mcp.example.com/register",
+      logo_uri: "https://mcp.example.com/icon.png",
     });
+    const iconResponse = await oauth.handle(new Request("https://local/icon.png"));
+    expect(iconResponse?.status).toBe(200);
+    expect(iconResponse?.headers.get("content-type")).toBe("image/png");
+    const iconBytes = await iconResponse?.arrayBuffer();
+    expect(iconBytes?.byteLength).toBe(56687);
+
+    const faviconResponse = await oauth.handle(new Request("https://local/favicon.ico"));
+    expect(faviconResponse?.status).toBe(200);
+    expect(faviconResponse?.headers.get("content-type")).toBe("image/png");
+
+    const iconHeadResponse = await oauth.handle(
+      new Request("https://local/icon.png", { method: "HEAD" }),
+    );
+    expect(iconHeadResponse?.status).toBe(200);
+    expect(iconHeadResponse?.headers.get("content-type")).toBe("image/png");
+    expect(iconHeadResponse?.headers.get("content-length")).toBe("56687");
+
     expect(await register(oauth)).toMatchObject({ client_id: "client_token-1" });
     const invalid = await oauth.handle(
       new Request("https://local/register", {
@@ -94,7 +113,10 @@ describe("remote MCP OAuth", () => {
     const params = authorizationParams(clientId, verifier);
     const consent = await oauth.handle(new Request(`https://local/authorize?${params.toString()}`));
     expect(consent?.status).toBe(200);
-    expect(await consent?.text()).toContain("Authorize Claude");
+    const consentHtml = (await consent?.text()) ?? "";
+    expect(consentHtml).toContain("Authorize Claude");
+    expect(consentHtml).toContain('<link rel="icon" type="image/png" href="/icon.png">');
+    expect(consentHtml).toContain('<img src="/icon.png" alt="Telesend" class="app-icon"');
 
     const denied = await oauth.handle(
       new Request("https://local/authorize", {

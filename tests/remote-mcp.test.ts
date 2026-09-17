@@ -99,7 +99,12 @@ describe("remote MCP HTTP", () => {
     expect(await mcpJson(response)).toMatchObject({
       jsonrpc: "2.0",
       id: 1,
-      result: { serverInfo: { name: "telesend" } },
+      result: {
+        serverInfo: {
+          name: "telesend",
+          icons: [{ src: "https://mcp.example.com/icon.png", mimeType: "image/png" }],
+        },
+      },
     });
   });
 

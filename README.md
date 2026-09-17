@@ -233,7 +233,7 @@ Go to **Settings → Connectors**, add a custom connector with `https://telesend
 <details>
 <summary><strong>Advanced: reverse proxy and OAuth details</strong></summary>
 
-`TELESEND_MCP_PUBLIC_URL` must be an HTTPS origin (no path or credentials). The same origin must route `/mcp`, `/authorize`, `/token`, `/register`, `/revoke`, and `/.well-known/*` to the Telesend process.
+`TELESEND_MCP_PUBLIC_URL` must be an HTTPS origin (no path or credentials). The same origin must route `/mcp`, `/authorize`, `/token`, `/register`, `/revoke`, `/.well-known/*`, and `/icon.png` to the Telesend process.
 
 Your reverse proxy must preserve `Authorization`, `Content-Type`, `Accept`, `MCP-Protocol-Version`, and `MCP-Session-Id` headers. Disable logging of request bodies and auth headers on these routes.
 
