@@ -6,8 +6,7 @@ import type { AliasRepository } from "./db/alias-repository.ts";
 import type { BotService } from "./services/bot-service.ts";
 import type { DeliveryService } from "./services/delivery-service.ts";
 import { getOperation, MESSAGE_CATALOG, type MediaSource } from "./telegram/catalog.ts";
-
-const VERSION = "0.1.0";
+import { VERSION } from "./version.ts";
 
 export interface CliServices {
   aliases: AliasRepository;

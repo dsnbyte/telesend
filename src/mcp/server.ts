@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Application } from "../app.ts";
 import { AppError, toAppError } from "../core/errors.ts";
 import { getOperation } from "../telegram/catalog.ts";
+import { VERSION } from "../version.ts";
 import { loadMcpConfig } from "./config.ts";
 import { getMethodDoc, KNOWN_QUERIES } from "./docs.ts";
 import { FilePolicy } from "./file-policy.ts";
@@ -132,7 +133,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
   const server = new McpServer(
     {
       name: "telesend",
-      version: "0.1.0",
+      version: VERSION,
       description: "Send Telegram bot messages via CLI, MCP, and REST",
       icons: [
         {

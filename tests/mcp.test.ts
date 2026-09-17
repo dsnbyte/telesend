@@ -15,6 +15,7 @@ import {
   createRemoteMcpServer,
 } from "../src/mcp/server.ts";
 import type { Fetch } from "../src/telegram/client.ts";
+import { VERSION } from "../src/version.ts";
 import { TestMcpClient } from "./helpers/mcp-client.ts";
 
 const applications: Application[] = [];
@@ -65,6 +66,7 @@ describe("MCP interface", () => {
   test("advertises instructions, distinct send tools, and lookup tools", async () => {
     const { client } = await setup(okFetch);
     expect(client.initializeResult.serverInfo?.name).toBe("telesend");
+    expect(client.initializeResult.serverInfo?.version).toBe(VERSION);
     expect(client.initializeResult.instructions).toContain(
       "Pick the send_* tool that matches the content",
     );

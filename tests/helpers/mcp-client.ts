@@ -7,7 +7,7 @@ import {
 } from "@modelcontextprotocol/server";
 
 export class TestMcpClient {
-  initializeResult: { instructions?: string; serverInfo?: { name: string } } = {};
+  initializeResult: { instructions?: string; serverInfo?: { name: string; version?: string } } = {};
   private id = 0;
   private readonly pending = new Map<
     number,
