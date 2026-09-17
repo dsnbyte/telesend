@@ -23,16 +23,11 @@ interface McpToolPolicy {
 
 const SERVER_INSTRUCTIONS = [
   "Send Telegram messages through registered bots.",
-  "send_text: plain text (add draft_id for streaming draft).",
-  "send_rich_message: structured/markdown message (add draft_id for streaming draft).",
-  "send_media: single file — set type: photo|video|animation|audio|document|sticker|voice|video_note|live_photo.",
-  "send_media_group: album of 2-10 files (add star_count for paid media locked behind Stars).",
-  "send_location: GPS point (add title+address for a venue).",
-  "send_interactive: set type: poll|checklist|dice|game.",
-  "send_invoice: payment invoice. send_contact: phone contact card.",
-  "get_telegram_parameter_doc: get advanced Telegram parameter documentation on demand. ONLY call this tool if you need advanced options (e.g. inline keyboards, custom entities) not present in the standard tool parameters. Do NOT call this tool if basic parameters are sufficient.",
+  "Pick the send_* tool that matches the content: send_text, send_rich_message, send_media (photo/video/audio/document/sticker/animation/...), send_media_group, send_location (add title+address for a venue), send_interactive (poll/checklist/dice/game), send_invoice, or send_contact.",
+  "list_aliases and list_bots are lookup helpers.",
   "Every send_* tool accepts payload.disable_notification: true for silent delivery.",
   "to: chat ID, @username, or alias from list_aliases. Omit bot to use the default.",
+  "Call get_telegram_parameter_doc only for advanced Telegram options not present in the standard tool parameters.",
 ].join("\n");
 
 // ─── Shared schema helpers ────────────────────────────────────────────────────

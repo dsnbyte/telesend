@@ -65,9 +65,16 @@ describe("MCP interface", () => {
   test("advertises instructions, distinct send tools, and lookup tools", async () => {
     const { client } = await setup(okFetch);
     expect(client.initializeResult.serverInfo?.name).toBe("telesend");
+    expect(client.initializeResult.instructions).toContain(
+      "Pick the send_* tool that matches the content",
+    );
     expect(client.initializeResult.instructions).toContain("send_text");
     expect(client.initializeResult.instructions).toContain("list_aliases");
     expect(client.initializeResult.instructions).toContain("payload.disable_notification: true");
+    expect(client.initializeResult.instructions).toContain(
+      "Call get_telegram_parameter_doc only for advanced Telegram options",
+    );
+    expect(client.initializeResult.instructions).not.toContain("plain text (add draft_id");
 
     const result = await client.request("tools/list", {});
     const tools = (
