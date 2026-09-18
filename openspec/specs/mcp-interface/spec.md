@@ -21,20 +21,20 @@ The MCP server SHALL run over standard input and output and SHALL expose categor
 - **WHEN** an MCP client calls `list_aliases`
 - **THEN** each alias includes `type` `group` or `private` so the client can send to every group alias
 
-### Requirement: Require explicit confirmation before bulk alias delivery
-The MCP server SHALL instruct clients to ask for confirmation and wait for an explicit affirmative response before sending when the user intends to send a message to all aliases or all groups.
-
-#### Scenario: Request delivery to every alias
-- **WHEN** a user intends to send a message to all aliases or all groups
-- **THEN** the client asks for confirmation and waits for an explicit affirmative response before sending
-
-#### Scenario: Confirm delivery to every alias
-- **WHEN** the user explicitly confirms the all-alias or all-group delivery
-- **THEN** the client may send the message
-
 #### Scenario: Attempt administration through MCP
 - **WHEN** an MCP client requests bot or alias mutation
 - **THEN** no such tool is available
+
+### Requirement: Provide tool-local usage guidance
+The MCP server SHALL provide usage guidance in each relevant tool description and input schema without relying on server-level instructions. Tool descriptions SHALL remain specific to the tool, while shared delivery parameters SHALL be represented as input schema properties.
+
+#### Scenario: Discover MCP tools without server instructions
+- **WHEN** an MCP client initializes the server and lists its tools
+- **THEN** the initialization result omits server-level instructions and each tool definition describes its own purpose and inputs
+
+#### Scenario: Discover silent delivery
+- **WHEN** an MCP client inspects any delivery tool input schema
+- **THEN** the schema documents the optional `payload.disable_notification` boolean
 
 ### Requirement: Accept declared MCP media sources
 An MCP media tool SHALL accept `path`, `url`, or `file_id` as an explicit source type where the selected Telegram content type supports that source.

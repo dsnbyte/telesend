@@ -63,24 +63,11 @@ async function setup(fetcher: Fetch) {
 }
 
 describe("MCP interface", () => {
-  test("advertises instructions, distinct send tools, and lookup tools", async () => {
+  test("advertises self-contained send and lookup tools", async () => {
     const { client } = await setup(okFetch);
     expect(client.initializeResult.serverInfo?.name).toBe("telesend");
     expect(client.initializeResult.serverInfo?.version).toBe(VERSION);
-    expect(client.initializeResult.instructions).toContain(
-      "Pick the send_* tool that matches the content",
-    );
-    expect(client.initializeResult.instructions).toContain("send_text");
-    expect(client.initializeResult.instructions).toContain("list_aliases");
-    expect(client.initializeResult.instructions).toContain("type group or private");
-    expect(client.initializeResult.instructions).toContain("payload.disable_notification: true");
-    expect(client.initializeResult.instructions).toContain(
-      "If the user intends to send a message to all aliases or all groups",
-    );
-    expect(client.initializeResult.instructions).toContain(
-      "Call get_telegram_parameter_doc only for advanced Telegram options",
-    );
-    expect(client.initializeResult.instructions).not.toContain("plain text (add draft_id");
+    expect(client.initializeResult.instructions).toBeUndefined();
 
     const result = await client.request("tools/list", {});
     const tools = (
@@ -95,6 +82,7 @@ describe("MCP interface", () => {
                   string,
                   {
                     type?: string;
+                    description?: string;
                     properties?: { source?: unknown; value?: { description?: string } };
                   }
                 >;
@@ -137,6 +125,14 @@ describe("MCP interface", () => {
       tools.find(({ name }) => name === "send_text")?.inputSchema?.properties?.payload?.properties
         ?.text?.type,
     ).toBe("string");
+    for (const tool of sendTools) {
+      expect(tool.inputSchema?.properties?.payload?.properties?.disable_notification).toMatchObject(
+        {
+          type: "boolean",
+          description: "Send silently without notifying the recipient.",
+        },
+      );
+    }
     expect(
       sourceEnum(tools.find(({ name }) => name === "send_media")?.inputSchema, "file"),
     ).toEqual(["path", "url", "file_id"]);
@@ -151,9 +147,7 @@ describe("MCP interface", () => {
     const client = await TestMcpClient.connect(
       createRemoteMcpServer(app, ["mcp:read", "mcp:send"]),
     );
-    expect(client.initializeResult.instructions).toContain(
-      "ask for confirmation and wait for an explicit affirmative response before sending",
-    );
+    expect(client.initializeResult.instructions).toBeUndefined();
     const result = await client.request("tools/list", {});
     const tools = (
       result as {

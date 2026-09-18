@@ -22,16 +22,6 @@ interface McpToolPolicy {
   includePaths: boolean;
 }
 
-const SERVER_INSTRUCTIONS = [
-  "Send Telegram messages through registered bots.",
-  "Pick the send_* tool that matches the content: send_text, send_rich_message, send_media (photo/video/audio/document/sticker/animation/...), send_media_group, send_location (add title+address for a venue), send_interactive (poll/checklist/dice/game), send_invoice, or send_contact.",
-  "list_aliases and list_bots are lookup helpers. Each alias has type group or private (negative chat IDs are groups, including supergroups and channels).",
-  "Every send_* tool accepts payload.disable_notification: true for silent delivery.",
-  "to: chat ID, @username, or alias from list_aliases. Omit bot to use the default. To message every group, list_aliases then send to each alias whose type is group.",
-  "If the user intends to send a message to all aliases or all groups, ask for confirmation and wait for an explicit affirmative response before sending.",
-  "Call get_telegram_parameter_doc only for advanced Telegram options not present in the standard tool parameters.",
-].join("\n");
-
 // ─── Shared schema helpers ────────────────────────────────────────────────────
 
 function mcpMediaSource(allowUrl: boolean, includePaths: boolean) {
@@ -57,7 +47,15 @@ function envelopeSchema<T extends z.ZodRawShape>(payloadShape: T) {
     to: z.string().min(1).describe("Chat ID, @username, or alias from list_aliases"),
     bot: z.string().min(1).optional().describe("Bot username; default from list_bots if omitted"),
     messageThreadId: z.number().int().positive().optional(),
-    payload: z.object(payloadShape).loose(),
+    payload: z
+      .object({
+        ...payloadShape,
+        disable_notification: z
+          .boolean()
+          .optional()
+          .describe("Send silently without notifying the recipient."),
+      })
+      .loose(),
   });
 }
 
@@ -131,21 +129,18 @@ export function createRemoteMcpServer(
 // ─── Core server builder ──────────────────────────────────────────────────────
 
 function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: string): McpServer {
-  const server = new McpServer(
-    {
-      name: "telesend",
-      version: VERSION,
-      description: "Send Telegram bot messages via CLI, MCP, and REST",
-      icons: [
-        {
-          src: iconUrl ?? ICON_DATA_URL,
-          mimeType: "image/png",
-          sizes: ["512x512"],
-        },
-      ],
-    },
-    { instructions: SERVER_INSTRUCTIONS },
-  );
+  const server = new McpServer({
+    name: "telesend",
+    version: VERSION,
+    description: "Send Telegram bot messages through MCP.",
+    icons: [
+      {
+        src: iconUrl ?? ICON_DATA_URL,
+        mimeType: "image/png",
+        sizes: ["512x512"],
+      },
+    ],
+  });
 
   // ── Discovery tools ─────────────────────────────────────────────────────────
 
@@ -154,7 +149,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
     {
       title: "List aliases",
       description:
-        "List recipient aliases that can be used as `to`. Each alias includes type (`group` or `private`); filter by type to send to all groups.",
+        "List recipient aliases that can be used as `to`. Each alias includes type (`group` or `private`)",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
@@ -185,7 +180,7 @@ function createToolServer(app: Application, policy: McpToolPolicy, iconUrl?: str
     {
       title: "Get Telegram parameter docs",
       description:
-        "Return advanced parameter documentation for a Telegram Bot API method or Telesend message type. " +
+        "Return advanced parameter docs for a Telegram Bot API method or Telesend message type. " +
         "ONLY call this tool if you need advanced parameters or customization options not available in the send_* tool schemas. " +
         "DO NOT call this tool if the basic parameters (e.g. text, parse_mode, caption, file, type, disable_notification) are sufficient for your task. " +
         `Accepts Telegram method names (e.g. "sendMessage", "sendPhoto") or Telesend types (e.g. "text", "photo", "poll").`,
