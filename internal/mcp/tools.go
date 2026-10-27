@@ -496,7 +496,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 			Schema: envelopeSchema(M{
 				"type":                   enum("Interactive content type.", "poll", "checklist", "dice", "game"),
 				"question":               strAny("Poll question (required for type: poll)."),
-				"options":                arr(looseObj("Poll option, shape { text: string }"), "Poll answer options, 2–10 items (required for type: poll)."),
+				"options":                arr(looseObj("Poll option, shape { text: string }"), "Poll answer options, 1–12 items (required for type: poll)."),
 				"business_connection_id": strAny("Business connection ID (required for type: checklist)."),
 				"checklist":              looseObj("Checklist object (required for type: checklist)."),
 				"game_short_name":        strAny("Short name of the HTML5 game from @BotFather (required for type: game)."),

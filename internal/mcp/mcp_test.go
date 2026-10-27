@@ -272,3 +272,108 @@ func TestRemoteMCPServerAndOAuth(t *testing.T) {
 		t.Fatalf("expected 401 after revocation: %v %v", unauthRes, err)
 	}
 }
+
+func TestMethodDocsBotAPI103(t *testing.T) {
+	// sendMessage should have ephemeral_message_parameters and allow_paid_broadcast
+	doc, ok := mcp.MethodDocFor("sendMessage")
+	if !ok {
+		t.Fatal("missing doc for sendMessage")
+	}
+	hasEphemeral := false
+	hasPaidBroadcast := false
+	for _, p := range doc.AdvancedParams {
+		if p.Name == "ephemeral_message_parameters" {
+			hasEphemeral = true
+		}
+		if p.Name == "allow_paid_broadcast" {
+			hasPaidBroadcast = true
+		}
+	}
+	if !hasEphemeral || !hasPaidBroadcast {
+		t.Fatalf("sendMessage missing 10.3 parameters: ephemeral=%v, paid_broadcast=%v", hasEphemeral, hasPaidBroadcast)
+	}
+
+	// sendMessageDraft should have can_stop, keep_on_stop, and NOT reply_parameters
+	draftDoc, ok := mcp.MethodDocFor("sendMessageDraft")
+	if !ok {
+		t.Fatal("missing doc for sendMessageDraft")
+	}
+	hasCanStop := false
+	hasKeepOnStop := false
+	hasReplyParams := false
+	for _, p := range draftDoc.AdvancedParams {
+		if p.Name == "can_stop" {
+			hasCanStop = true
+		}
+		if p.Name == "keep_on_stop" {
+			hasKeepOnStop = true
+		}
+		if p.Name == "reply_parameters" {
+			hasReplyParams = true
+		}
+	}
+	if !hasCanStop || !hasKeepOnStop || hasReplyParams {
+		t.Fatalf("sendMessageDraft incorrect params: can_stop=%v, keep_on_stop=%v, reply_parameters=%v", hasCanStop, hasKeepOnStop, hasReplyParams)
+	}
+
+	// sendPoll should have correct_option_ids (not correct_option_id) and allows_revoting
+	pollDoc, ok := mcp.MethodDocFor("sendPoll")
+	if !ok {
+		t.Fatal("missing doc for sendPoll")
+	}
+	hasCorrectOptionIDs := false
+	hasOldCorrectOptionID := false
+	hasAllowsRevoting := false
+	for _, p := range pollDoc.AdvancedParams {
+		if p.Name == "correct_option_ids" {
+			hasCorrectOptionIDs = true
+		}
+		if p.Name == "correct_option_id" {
+			hasOldCorrectOptionID = true
+		}
+		if p.Name == "allows_revoting" {
+			hasAllowsRevoting = true
+		}
+	}
+	if !hasCorrectOptionIDs || hasOldCorrectOptionID || !hasAllowsRevoting {
+		t.Fatalf("sendPoll incorrect params: correct_option_ids=%v, old=%v, allows_revoting=%v", hasCorrectOptionIDs, hasOldCorrectOptionID, hasAllowsRevoting)
+	}
+
+	// sendPhoto should not have duplicate show_caption_above_media
+	photoDoc, ok := mcp.MethodDocFor("sendPhoto")
+	if !ok {
+		t.Fatal("missing doc for sendPhoto")
+	}
+	captionAboveCount := 0
+	for _, p := range photoDoc.AdvancedParams {
+		if p.Name == "show_caption_above_media" {
+			captionAboveCount++
+		}
+	}
+	if captionAboveCount != 1 {
+		t.Fatalf("sendPhoto show_caption_above_media count = %d, expected 1", captionAboveCount)
+	}
+
+	// sendAudio should NOT have show_caption_above_media
+	audioDoc, ok := mcp.MethodDocFor("sendAudio")
+	if !ok {
+		t.Fatal("missing doc for sendAudio")
+	}
+	for _, p := range audioDoc.AdvancedParams {
+		if p.Name == "show_caption_above_media" {
+			t.Fatal("sendAudio should not have show_caption_above_media")
+		}
+	}
+
+	// sendChecklist should have business_connection_id with Required == true
+	checklistDoc, ok := mcp.MethodDocFor("sendChecklist")
+	if !ok {
+		t.Fatal("missing doc for sendChecklist")
+	}
+	for _, p := range checklistDoc.AdvancedParams {
+		if p.Name == "business_connection_id" && !p.Required {
+			t.Fatal("sendChecklist business_connection_id should be required")
+		}
+	}
+}
+

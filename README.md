@@ -313,10 +313,10 @@ Start the server:
 
 ```sh
 # Start both REST API and Remote MCP:
-TELESEND_API_KEY='your-secret-key' telesend serve --host 127.0.0.1 --port 3100
+TELESEND_API_KEY='your-secret-key' telesend serve
 
 # Or start REST API only (disabling Remote MCP):
-TELESEND_API_KEY='your-secret-key' telesend serve --no-mcp --host 127.0.0.1 --port 3100
+TELESEND_API_KEY='your-secret-key' telesend serve --no-mcp
 
 # Listen on all network interfaces:
 TELESEND_API_KEY='your-secret-key' telesend serve --host 0.0.0.0 --port 3100
