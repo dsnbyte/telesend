@@ -29,6 +29,7 @@ These are hard constraints — never weaken them without explicit approval.
 
 ## Workflow
 
+- Always run `make build` after completing each task so `dist/telesend` stays up to date.
 - Touch only what the task requires — no unrelated refactors or style edits.
 - Match existing patterns and style.
 - Ask when uncertain; flag simpler alternatives.
