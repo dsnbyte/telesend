@@ -294,7 +294,7 @@ func TestCLIServerOptions(t *testing.T) {
 	t.Setenv("TELESEND_API_KEY", "")
 	t.Setenv("TELESEND_API_KEY_HASH", "")
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
-	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "owner_secret")
+	t.Setenv("TELESEND_MCP_PASSWORD", "owner_secret")
 	_, errOut, code = run(context.Background(), env.tg, env.wrapper, []string{"serve"}, "")
 	if code != 1 || !strings.Contains(errOut, "TELESEND_API_KEY or TELESEND_API_KEY_HASH is required") {
 		t.Fatalf("expected missing REST config error: %d %q", code, errOut)
@@ -303,7 +303,7 @@ func TestCLIServerOptions(t *testing.T) {
 	// 4. Start both servers on unified port
 	t.Setenv("TELESEND_API_KEY", "test-api-key")
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
-	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "owner_secret")
+	t.Setenv("TELESEND_MCP_PASSWORD", "owner_secret")
 	port := freePort(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -356,7 +356,7 @@ func TestCLIServerOptions(t *testing.T) {
 
 	// 5. REST only (--no-mcp): MCP config not required
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "")
-	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "")
+	t.Setenv("TELESEND_MCP_PASSWORD", "")
 	portREST := freePort(t)
 	ctxREST, cancelREST := context.WithCancel(context.Background())
 	defer cancelREST()
@@ -387,7 +387,7 @@ func TestCLIServerOptions(t *testing.T) {
 	// 6. MCP only (--no-rest): REST config not required
 	t.Setenv("TELESEND_API_KEY", "")
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
-	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "owner_secret")
+	t.Setenv("TELESEND_MCP_PASSWORD", "owner_secret")
 	portMCP := freePort(t)
 	ctxMCP, cancelMCP := context.WithCancel(context.Background())
 	defer cancelMCP()

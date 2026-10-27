@@ -254,7 +254,7 @@ telesend hash-password
 
 ```sh
 TELESEND_MCP_PUBLIC_URL=https://telesend.example.com
-TELESEND_MCP_OWNER_PASSWORD_HASH=replace-with-generated-hash
+TELESEND_MCP_PASSWORD_HASH=replace-with-generated-hash
 ```
 
 3. Start the server:
@@ -294,7 +294,7 @@ Go to **Settings → Connectors**, add a custom connector with `https://telesend
 
 Your reverse proxy must preserve `Authorization`, `Content-Type`, `Accept`, `MCP-Protocol-Version`, and `MCP-Session-Id` headers. Disable logging of request bodies and auth headers on these routes.
 
-For quick local testing, you can use `TELESEND_MCP_OWNER_PASSWORD` instead of the hash — Telesend will hash it at startup. Prefer the precomputed hash for production.
+For quick local testing, you can use `TELESEND_MCP_PASSWORD` instead of the hash — Telesend will hash it at startup. Prefer the precomputed hash for production.
 
 Access is granted with `mcp:read` and/or `mcp:send` scopes. Disconnect the connector in ChatGPT or Claude.ai to revoke credentials.
 </details>

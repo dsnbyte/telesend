@@ -519,7 +519,7 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 		if err != nil {
 			return apperr.New(apperr.Configuration, "TELESEND_MCP_PUBLIC_URL must be an HTTPS origin")
 		}
-		v, err := secret.NewVerifier(os.Getenv("TELESEND_MCP_OWNER_PASSWORD_HASH"), os.Getenv("TELESEND_MCP_OWNER_PASSWORD"))
+		v, err := secret.NewVerifier(os.Getenv("TELESEND_MCP_PASSWORD_HASH"), os.Getenv("TELESEND_MCP_PASSWORD"))
 		if err != nil {
 			return err
 		}
@@ -709,7 +709,7 @@ func runHashPassword(ioStreams IO) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ioStreams.Out, "TELESEND_MCP_OWNER_PASSWORD_HASH=%s\n", secret.Encode(hash))
+	fmt.Fprintf(ioStreams.Out, "TELESEND_MCP_PASSWORD_HASH=%s\n", secret.Encode(hash))
 	return nil
 }
 

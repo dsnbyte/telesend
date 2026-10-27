@@ -58,7 +58,7 @@ func NewRemoteServer(a *app.App, cfg RemoteConfig) (*RemoteServer, error) {
 		return nil, apperr.New(apperr.Configuration, "TELESEND_MCP_PUBLIC_URL must be an HTTPS origin")
 	}
 	if cfg.OwnerVerifier == nil {
-		return nil, apperr.New(apperr.Configuration, "TELESEND_MCP_OWNER_PASSWORD or TELESEND_MCP_OWNER_PASSWORD_HASH is required")
+		return nil, apperr.New(apperr.Configuration, "TELESEND_MCP_PASSWORD or TELESEND_MCP_PASSWORD_HASH is required")
 	}
 	nowFn := cfg.Now
 	if nowFn == nil {
