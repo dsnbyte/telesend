@@ -255,16 +255,22 @@ TELESEND_MCP_PUBLIC_URL=https://telesend.example.com
 TELESEND_MCP_OWNER_PASSWORD_HASH=replace-with-generated-hash
 ```
 
-3. Start the listener:
+3. Start the server:
 
 ```sh
-telesend mcp-serve
+telesend serve
 ```
 
-By default it listens on `http://127.0.0.1:3100`. Use `--host` and `--port` to customize the address, matching the REST API (for example, to listen on `0.0.0.0` in Docker or a container environment):
+By default it listens on `http://127.0.0.1:3100` and starts both the REST API and the Remote MCP server. Use `--no-rest` to run only Remote MCP:
 
 ```sh
-telesend mcp-serve --host 0.0.0.0 --port 3100
+telesend serve --no-rest
+```
+
+Use `--host` and `--port` to customize the address (for example, to listen on `0.0.0.0` in Docker or a container environment):
+
+```sh
+telesend serve --host 0.0.0.0 --port 3100
 ```
 
 Put an HTTPS reverse proxy in front of it in production.
@@ -306,9 +312,14 @@ telesend hash-key
 Start the server:
 
 ```sh
-TELESEND_API_KEY='your-secret-key' telesend serve --host 127.0.0.1 --port 3000
-# Or listen on all network interfaces:
-TELESEND_API_KEY='your-secret-key' telesend serve --host 0.0.0.0 --port 3000
+# Start both REST API and Remote MCP:
+TELESEND_API_KEY='your-secret-key' telesend serve --host 127.0.0.1 --port 3100
+
+# Or start REST API only (disabling Remote MCP):
+TELESEND_API_KEY='your-secret-key' telesend serve --no-mcp --host 127.0.0.1 --port 3100
+
+# Listen on all network interfaces:
+TELESEND_API_KEY='your-secret-key' telesend serve --host 0.0.0.0 --port 3100
 ```
 
 For production, use `TELESEND_API_KEY_HASH` instead of the plaintext key.
@@ -331,22 +342,22 @@ Every request requires `x-api-key`.
 
 ```sh
 # Health check
-curl -H "x-api-key: $TELESEND_API_KEY" http://127.0.0.1:3000/health
+curl -H "x-api-key: $TELESEND_API_KEY" http://127.0.0.1:3100/health
 
 # Send text
-curl -X POST http://127.0.0.1:3000/messages/text \
+curl -X POST http://127.0.0.1:3100/messages/text \
   -H "x-api-key: $TELESEND_API_KEY" \
   -H 'content-type: application/json' \
   -d '{"to":"ops","payload":{"text":"Hello"}}'
 
 # Send photo via URL
-curl -X POST http://127.0.0.1:3000/messages/photo \
+curl -X POST http://127.0.0.1:3100/messages/photo \
   -H "x-api-key: $TELESEND_API_KEY" \
   -H 'content-type: application/json' \
   -d '{"to":"ops","payload":{"photo":{"source":"url","value":"https://example.com/chart.png"},"caption":"Daily chart"}}'
 
 # Upload a file
-curl -X POST http://127.0.0.1:3000/messages/photo \
+curl -X POST http://127.0.0.1:3100/messages/photo \
   -H "x-api-key: $TELESEND_API_KEY" \
   -F 'to=ops' \
   -F 'payload={"photo":{"source":"upload","value":"image"},"caption":"Daily chart"}' \

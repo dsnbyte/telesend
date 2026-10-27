@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dsnbyte/telesend/internal/cli"
-	"github.com/dsnbyte/telesend/internal/secret"
 	"github.com/dsnbyte/telesend/internal/store"
 	"github.com/dsnbyte/telesend/internal/testutil"
 	"github.com/dsnbyte/telesend/internal/version"
@@ -215,23 +216,211 @@ func TestCLIMessageSending(t *testing.T) {
 	}
 }
 
+func freePort(t testing.TB) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func waitServerReady(url string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		res, err := http.Get(url)
+		if err == nil {
+			res.Body.Close()
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
 func TestCLIServerOptions(t *testing.T) {
 	env := setupCLI(t)
 
-	// Test MCPServe with host and port support
-	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
-	hash, _ := secret.Hash("owner_secret")
-	t.Setenv("TELESEND_MCP_OWNER_PASSWORD_HASH", secret.Encode(hash))
+	// 1. Both REST and MCP servers disabled -> validation error
+	_, errOut, code := run(context.Background(), env.tg, env.wrapper, []string{"serve", "--no-mcp", "--no-rest"}, "")
+	if code != 1 || !strings.Contains(errOut, "Cannot disable both REST and MCP servers") {
+		t.Fatalf("expected both disabled error: %d %q", code, errOut)
+	}
 
+	// 2. Both servers enabled by default: missing MCP config fails fast
+	t.Setenv("TELESEND_API_KEY", "test-api-key")
+	t.Setenv("TELESEND_MCP_PUBLIC_URL", "")
+	_, errOut, code = run(context.Background(), env.tg, env.wrapper, []string{"serve"}, "")
+	if code != 1 || !strings.Contains(errOut, "TELESEND_MCP_PUBLIC_URL is required") {
+		t.Fatalf("expected missing MCP config error: %d %q", code, errOut)
+	}
+
+	// 3. Both servers enabled by default: missing REST config fails fast
+	t.Setenv("TELESEND_API_KEY", "")
+	t.Setenv("TELESEND_API_KEY_HASH", "")
+	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
+	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "owner_secret")
+	_, errOut, code = run(context.Background(), env.tg, env.wrapper, []string{"serve"}, "")
+	if code != 1 || !strings.Contains(errOut, "TELESEND_API_KEY or TELESEND_API_KEY_HASH is required") {
+		t.Fatalf("expected missing REST config error: %d %q", code, errOut)
+	}
+
+	// 4. Start both servers on unified port
+	t.Setenv("TELESEND_API_KEY", "test-api-key")
+	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
+	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "owner_secret")
+	port := freePort(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	// Cancel after short delay
+	defer cancel()
+
+	type runResult struct {
+		out  string
+		err  string
+		code int
+	}
+	resCh := make(chan runResult, 1)
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
+		out, errS, c := run(ctx, env.tg, env.wrapper, []string{"serve", "--port", port}, "")
+		resCh <- runResult{out, errS, c}
 	}()
 
-	out, _, _ := run(ctx, env.tg, env.wrapper, []string{"mcp-serve", "--host", "0.0.0.0", "--port", "3199"}, "")
-	if !strings.Contains(out, "Telesend remote MCP listening on http://0.0.0.0:3199/") {
-		t.Fatalf("expected mcp-serve on 0.0.0.0:3199: %q", out)
+	if !waitServerReady("http://127.0.0.1:"+port+"/.well-known/oauth-protected-resource", 2*time.Second) {
+		t.Fatalf("server did not become ready on port %s", port)
+	}
+
+	// Test MCP discovery endpoint
+	res, err := http.Get("http://127.0.0.1:" + port + "/.well-known/oauth-protected-resource")
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("expected MCP discovery 200: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
+	// Test REST health endpoint with API key
+	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1:"+port+"/health", nil)
+	req.Header.Set("x-api-key", "test-api-key")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("expected REST health 200: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
+	// Test REST health endpoint without API key (should be 401)
+	res, err = http.Get("http://127.0.0.1:" + port + "/health")
+	if err != nil || res.StatusCode != 401 {
+		t.Fatalf("expected REST health 401: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
+	cancel()
+	rr := <-resCh
+	if !strings.Contains(rr.out, "Telesend server listening on http://127.0.0.1:"+port+"/") ||
+		!strings.Contains(rr.out, "REST API:   http://127.0.0.1:"+port+"/") ||
+		!strings.Contains(rr.out, "Remote MCP: http://127.0.0.1:"+port+"/") {
+		t.Fatalf("expected both server startup output: %q", rr.out)
+	}
+
+	// 5. REST only (--no-mcp): MCP config not required
+	t.Setenv("TELESEND_MCP_PUBLIC_URL", "")
+	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "")
+	portREST := freePort(t)
+	ctxREST, cancelREST := context.WithCancel(context.Background())
+	defer cancelREST()
+
+	resChREST := make(chan runResult, 1)
+	go func() {
+		out, errS, c := run(ctxREST, env.tg, env.wrapper, []string{"serve", "--port", portREST, "--no-mcp"}, "")
+		resChREST <- runResult{out, errS, c}
+	}()
+
+	if !waitServerReady("http://127.0.0.1:"+portREST+"/health", 2*time.Second) {
+		t.Fatalf("REST server did not become ready on port %s", portREST)
+	}
+
+	// MCP route should return 404
+	res, err = http.Get("http://127.0.0.1:" + portREST + "/.well-known/oauth-protected-resource")
+	if err != nil || res.StatusCode != 404 {
+		t.Fatalf("expected 404 for MCP route on REST-only server: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
+	cancelREST()
+	rrREST := <-resChREST
+	if !strings.Contains(rrREST.out, "Telesend REST API listening on http://127.0.0.1:"+portREST+"/") {
+		t.Fatalf("expected REST-only startup output: %q", rrREST.out)
+	}
+
+	// 6. MCP only (--no-rest): REST config not required
+	t.Setenv("TELESEND_API_KEY", "")
+	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
+	t.Setenv("TELESEND_MCP_OWNER_PASSWORD", "owner_secret")
+	portMCP := freePort(t)
+	ctxMCP, cancelMCP := context.WithCancel(context.Background())
+	defer cancelMCP()
+
+	resChMCP := make(chan runResult, 1)
+	go func() {
+		out, errS, c := run(ctxMCP, env.tg, env.wrapper, []string{"serve", "--port", portMCP, "--no-rest"}, "")
+		resChMCP <- runResult{out, errS, c}
+	}()
+
+	if !waitServerReady("http://127.0.0.1:"+portMCP+"/.well-known/oauth-protected-resource", 2*time.Second) {
+		t.Fatalf("MCP server did not become ready on port %s", portMCP)
+	}
+
+	// REST route should return 404
+	req, _ = http.NewRequest(http.MethodGet, "http://127.0.0.1:"+portMCP+"/health", nil)
+	req.Header.Set("x-api-key", "test-api-key")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 404 {
+		t.Fatalf("expected 404 for REST route on MCP-only server: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
+	cancelMCP()
+	rrMCP := <-resChMCP
+	if !strings.Contains(rrMCP.out, "Telesend remote MCP listening on http://127.0.0.1:"+portMCP+"/") {
+		t.Fatalf("expected MCP-only startup output: %q", rrMCP.out)
+	}
+
+	// 7. MCP only with --no-api alias
+	portAPI := freePort(t)
+	ctxAPI, cancelAPI := context.WithCancel(context.Background())
+	defer cancelAPI()
+
+	resChAPI := make(chan runResult, 1)
+	go func() {
+		out, errS, c := run(ctxAPI, env.tg, env.wrapper, []string{"serve", "--port", portAPI, "--no-api"}, "")
+		resChAPI <- runResult{out, errS, c}
+	}()
+
+	if !waitServerReady("http://127.0.0.1:"+portAPI+"/.well-known/oauth-protected-resource", 2*time.Second) {
+		t.Fatalf("MCP server did not become ready on port %s with --no-api", portAPI)
+	}
+	cancelAPI()
+	rrAPI := <-resChAPI
+	if !strings.Contains(rrAPI.out, "Telesend remote MCP listening on http://127.0.0.1:"+portAPI+"/") {
+		t.Fatalf("expected MCP-only startup output with --no-api: %q", rrAPI.out)
+	}
+
+	// 8. Default port is 3100 when --port is omitted
+	ctxDef, cancelDef := context.WithCancel(context.Background())
+	defer cancelDef()
+	resChDef := make(chan runResult, 1)
+	go func() {
+		out, errS, c := run(ctxDef, env.tg, env.wrapper, []string{"serve", "--no-rest"}, "")
+		resChDef <- runResult{out, errS, c}
+	}()
+	if !waitServerReady("http://127.0.0.1:3100/.well-known/oauth-protected-resource", 2*time.Second) {
+		t.Fatalf("server on default port 3100 did not become ready")
+	}
+	cancelDef()
+	rrDef := <-resChDef
+	if !strings.Contains(rrDef.out, "http://127.0.0.1:3100/") {
+		t.Fatalf("expected default port 3100 in output: %q", rrDef.out)
 	}
 }

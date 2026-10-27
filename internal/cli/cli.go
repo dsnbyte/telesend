@@ -77,8 +77,6 @@ func dispatch(ctx context.Context, args []string, a *app.App, ioStreams IO, json
 		return runServe(ctx, args[1:], a, ioStreams)
 	case "mcp":
 		return runMCP(ctx, args[1:], a, ioStreams)
-	case "mcp-serve":
-		return runRemoteMCP(ctx, args[1:], a, ioStreams)
 	case "hash-key":
 		return runHashKey(ioStreams)
 	case "hash-password":
@@ -416,15 +414,35 @@ func parseMediaArg(val string) map[string]any {
 }
 
 func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
-	opts, _, err := parseOptions(args)
+	noMCP := false
+	noREST := false
+	var filtered []string
+	for _, arg := range args {
+		switch arg {
+		case "--no-mcp":
+			noMCP = true
+		case "--no-rest", "--no-api":
+			noREST = true
+		default:
+			filtered = append(filtered, arg)
+		}
+	}
+	if noMCP && noREST {
+		return apperr.New(apperr.Validation, "Cannot disable both REST and MCP servers")
+	}
+
+	opts, positionals, err := parseOptions(filtered)
 	if err != nil {
 		return err
+	}
+	if len(positionals) > 0 {
+		return apperr.Newf(apperr.Validation, "Unexpected argument: %s", positionals[0])
 	}
 	host := "127.0.0.1"
 	if h, ok := opts["host"]; ok && h != "" {
 		host = h
 	}
-	port := 3000
+	port := 3100
 	if p, ok := opts["port"]; ok {
 		port, err = strconv.Atoi(p)
 		if err != nil || port <= 0 {
@@ -432,13 +450,43 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 		}
 	}
 
-	v, err := secret.NewVerifier(os.Getenv("TELESEND_API_KEY_HASH"), os.Getenv("TELESEND_API_KEY"))
-	if err != nil {
-		return err
+	var restHandler http.Handler
+	if !noREST {
+		v, err := secret.NewVerifier(os.Getenv("TELESEND_API_KEY_HASH"), os.Getenv("TELESEND_API_KEY"))
+		if err != nil {
+			return err
+		}
+		restHandler, err = rest.NewServer(a, v)
+		if err != nil {
+			return err
+		}
 	}
-	handler, err := rest.NewServer(a, v)
-	if err != nil {
-		return err
+
+	var mcpHandler http.Handler
+	var mcpURL *url.URL
+	if !noMCP {
+		publicRaw := os.Getenv("TELESEND_MCP_PUBLIC_URL")
+		if publicRaw == "" {
+			return apperr.New(apperr.Configuration, "TELESEND_MCP_PUBLIC_URL is required")
+		}
+		publicURL, err := url.Parse(publicRaw)
+		if err != nil {
+			return apperr.New(apperr.Configuration, "TELESEND_MCP_PUBLIC_URL must be an HTTPS origin")
+		}
+		v, err := secret.NewVerifier(os.Getenv("TELESEND_MCP_OWNER_PASSWORD_HASH"), os.Getenv("TELESEND_MCP_OWNER_PASSWORD"))
+		if err != nil {
+			return err
+		}
+		mcpHandler, err = mcp.NewRemoteServer(a, mcp.RemoteConfig{
+			PublicURL:     publicURL,
+			OwnerVerifier: v,
+		})
+		if err != nil {
+			return err
+		}
+		u := *publicURL
+		u.Path = "/mcp"
+		mcpURL = &u
 	}
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
@@ -447,14 +495,84 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 		return err
 	}
 	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	fmt.Fprintf(ioStreams.Out, "Telesend REST API listening on http://%s/\n", net.JoinHostPort(host, portStr))
+	boundHostPort := net.JoinHostPort(host, portStr)
 
-	server := &http.Server{Handler: handler}
+	if !noREST && !noMCP {
+		fmt.Fprintf(ioStreams.Out, "Telesend server listening on http://%s/\n", boundHostPort)
+		fmt.Fprintf(ioStreams.Out, "  REST API:   http://%s/\n", boundHostPort)
+		fmt.Fprintf(ioStreams.Out, "  Remote MCP: http://%s/ (public %s)\n", boundHostPort, mcpURL.String())
+	} else if !noREST {
+		fmt.Fprintf(ioStreams.Out, "Telesend REST API listening on http://%s/\n", boundHostPort)
+	} else {
+		fmt.Fprintf(ioStreams.Out, "Telesend remote MCP listening on http://%s/ (public %s)\n", boundHostPort, mcpURL.String())
+	}
+
+	server := &http.Server{Handler: combinedServerHandler{rest: restHandler, mcp: mcpHandler}}
 	go func() {
 		<-ctx.Done()
 		server.Close()
 	}()
-	return server.Serve(ln)
+	err = server.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+type combinedServerHandler struct {
+	rest http.Handler
+	mcp  http.Handler
+}
+
+func (h combinedServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if isMCPPath(r.URL.Path) {
+		if h.mcp != nil {
+			h.mcp.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
+	if isRESTPath(r.URL.Path) {
+		if h.rest != nil {
+			h.rest.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
+	if h.rest != nil && r.Header.Get("x-api-key") != "" {
+		h.rest.ServeHTTP(w, r)
+		return
+	}
+	if h.rest != nil && h.mcp == nil {
+		h.rest.ServeHTTP(w, r)
+		return
+	}
+	if h.mcp != nil && h.rest == nil {
+		h.mcp.ServeHTTP(w, r)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+func isMCPPath(p string) bool {
+	switch p {
+	case "/mcp", "/register", "/authorize", "/token", "/revoke",
+		"/icon.png", "/favicon.ico", "/apple-touch-icon.png", "/telesend-icon.png":
+		return true
+	}
+	return strings.HasPrefix(p, "/.well-known/") || strings.HasPrefix(p, "/mcp/")
+}
+
+func isRESTPath(p string) bool {
+	switch p {
+	case "/health", "/bots", "/aliases", "/messages":
+		return true
+	}
+	return strings.HasPrefix(p, "/bots/") ||
+		strings.HasPrefix(p, "/aliases/") ||
+		strings.HasPrefix(p, "/messages/")
 }
 
 func runMCP(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
@@ -501,62 +619,6 @@ func runMCP(ctx context.Context, args []string, a *app.App, ioStreams IO) error 
 
 	server := mcp.NewStdioServer(a, policy)
 	return server.ServeStdio(ctx, ioStreams.In, ioStreams.Out)
-}
-
-func runRemoteMCP(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
-	opts, _, err := parseOptions(args)
-	if err != nil {
-		return err
-	}
-	host := "127.0.0.1"
-	if h, ok := opts["host"]; ok && h != "" {
-		host = h
-	}
-	port := 3100
-	if p, ok := opts["port"]; ok {
-		port, err = strconv.Atoi(p)
-		if err != nil || port <= 0 {
-			return apperr.New(apperr.Validation, "--port must be a positive integer")
-		}
-	}
-
-	publicRaw := os.Getenv("TELESEND_MCP_PUBLIC_URL")
-	if publicRaw == "" {
-		return apperr.New(apperr.Configuration, "TELESEND_MCP_PUBLIC_URL is required")
-	}
-	publicURL, err := url.Parse(publicRaw)
-	if err != nil {
-		return apperr.New(apperr.Configuration, "TELESEND_MCP_PUBLIC_URL must be an HTTPS origin")
-	}
-
-	v, err := secret.NewVerifier(os.Getenv("TELESEND_MCP_OWNER_PASSWORD_HASH"), os.Getenv("TELESEND_MCP_OWNER_PASSWORD"))
-	if err != nil {
-		return err
-	}
-	server, err := mcp.NewRemoteServer(a, mcp.RemoteConfig{
-		PublicURL:     publicURL,
-		OwnerVerifier: v,
-	})
-	if err != nil {
-		return err
-	}
-
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	mcpURL := *publicURL
-	mcpURL.Path = "/mcp"
-	fmt.Fprintf(ioStreams.Out, "Telesend remote MCP listening on http://%s/ (public %s)\n", net.JoinHostPort(host, portStr), mcpURL.String())
-
-	httpServer := &http.Server{Handler: server}
-	go func() {
-		<-ctx.Done()
-		httpServer.Close()
-	}()
-	return httpServer.Serve(ln)
 }
 
 func runHashKey(ioStreams IO) error {
@@ -757,9 +819,8 @@ Usage:
   telesend [--json] alias add <name> <chat-id> [--thread-id <id>]
   telesend [--json] alias list|update|remove
   telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
-  telesend serve [--host <host>] [--port <port>]
+  telesend serve [--host <host>] [--port <port>] [--no-mcp] [--no-rest]
   telesend mcp [--config <path>] [--allow-path <path> ...]
-  telesend mcp-serve [--host <host>] [--port <port>]
   telesend hash-key
   telesend hash-password
   telesend --version

@@ -40,13 +40,25 @@ The CLI SHALL expose content-specific send commands that accept a direct chat ID
 - **THEN** the CLI prints a concise actionable error to standard error and exits nonzero
 
 ### Requirement: Start service modes from the CLI
-The CLI SHALL provide separate commands to start the REST server and the stdio MCP server, passing service-specific startup options to those modes.
+The CLI SHALL provide commands to start the unified HTTP service (REST API and Remote MCP) and the local stdio MCP server, passing service-specific startup options to those modes.
 
-#### Scenario: Start REST mode
-- **WHEN** an operator runs `telesend serve` with valid server configuration
-- **THEN** the process starts the authenticated REST service and reports its bound address
+#### Scenario: Start unified server mode
+- **WHEN** an operator runs `telesend serve` with valid configuration
+- **THEN** the process starts both the authenticated REST service and the remote MCP service on a single unified port and reports its bound address
 
-#### Scenario: Start MCP mode
+#### Scenario: Start REST only
+- **WHEN** an operator runs `telesend serve --no-mcp` with valid REST configuration
+- **THEN** the process starts only the REST service and disables remote MCP routes
+
+#### Scenario: Start Remote MCP only
+- **WHEN** an operator runs `telesend serve --no-rest` with valid MCP configuration
+- **THEN** the process starts only the remote MCP service and disables REST routes
+
+#### Scenario: Disable both services
+- **WHEN** an operator runs `telesend serve --no-mcp --no-rest`
+- **THEN** the process exits with a validation error
+
+#### Scenario: Start stdio MCP mode
 - **WHEN** an operator runs `telesend mcp` with valid MCP configuration
 - **THEN** the process serves MCP over standard input and output without protocol-breaking log output on standard output
 
