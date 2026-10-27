@@ -1,6 +1,6 @@
 # MCP file policy
 
-Local paths in MCP tool calls are read by the machine running `telesend mcp`. Telesend permits the startup working directory by default. Add roots with `--allow-path` or `mcp.files.allow_paths` in `config.toml`.
+Local paths in MCP tool calls are read by the machine running `telesend mcp`. Telesend permits the startup working directory by default. Add roots with `--allow-path` or `mcp.files.allow_paths` in `config.json`.
 
 Policy evaluation is fail-closed:
 
@@ -10,4 +10,4 @@ Policy evaluation is fail-closed:
 4. Source, project config, dependencies, and conventional `src`, `config`, and `assets` directories are denied by default.
 5. User `include` patterns can override only the default exclusions.
 
-Patterns use Bun glob syntax and match paths relative to each allowed root. Symlinks are resolved before containment and pattern checks.
+Patterns use standard glob syntax (`*`, `**`, `?`, `{a,b}`) and match paths relative to each allowed root. Symlinks are resolved before containment and pattern checks.

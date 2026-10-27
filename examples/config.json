@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "files": {
+      "allow_paths": ["~/Documents/telesend"],
+      "include": ["generated/**/*.json"],
+      "exclude": ["**/private/**", "**/*-secret.*"]
+    }
+  }
+}

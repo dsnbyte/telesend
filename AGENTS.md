@@ -1,14 +1,14 @@
 # Telesend - Agent Guidelines
 
-Send Telegram bot messages via CLI, stdio MCP server, and authenticated REST API. Self-hosted Bun application.
+Send Telegram bot messages via CLI, stdio MCP server, and authenticated REST API. Self-hosted Go application.
 
 ## Commands
 
-Always use Bun. Run `bun run check` after every modification.
+Always use Go. Run `make check` (or `go test ./... && go vet ./...`) after every modification.
 
-- `bun run check` — full verification (typecheck + test + lint)
-- `bun test tests/<file>.test.ts` — single test file
-- `bun run format` — auto-format
+- `make check` — full verification (tests + vet)
+- `go test ./internal/<pkg>` — single package test
+- `make build` — build standalone binary in `dist/telesend`
 
 ## Security Rules
 
@@ -23,9 +23,9 @@ These are hard constraints — never weaken them without explicit approval.
 
 ## Conventions
 
-- **One production dependency** (`@modelcontextprotocol/server`). Prefer native Bun APIs over new packages.
+- **Pure Go SQLite** (`modernc.org/sqlite`). No CGO required for builds or cross-compilation.
 - **Database migrations are versioned.** Never modify existing migrations; append new ones.
-- **Tests use in-memory databases.** Always `:memory:` path and `db.close(false)` in teardown.
+- **Tests use in-memory databases.** Always `:memory:` path and clean up resources in teardown.
 
 ## Workflow
 

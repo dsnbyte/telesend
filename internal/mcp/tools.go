@@ -1,0 +1,593 @@
+package mcp
+
+import (
+	"context"
+	"maps"
+	"slices"
+	"strings"
+
+	"github.com/dsnbyte/telesend/internal/app"
+	"github.com/dsnbyte/telesend/internal/apperr"
+	"github.com/dsnbyte/telesend/internal/store"
+)
+
+// Authorizer checks and canonicalizes media sources in an MCP payload.
+type Authorizer interface {
+	Authorize(payload any) (any, error)
+}
+
+// LocalAuthorizer canonicalizes paths using FilePolicy.
+type LocalAuthorizer struct{ Policy *FilePolicy }
+
+// Authorize resolves path media sources through the policy.
+func (a *LocalAuthorizer) Authorize(v any) (any, error) {
+	switch t := v.(type) {
+	case map[string]any:
+		src, ok := t["source"].(string)
+		if ok && (src == "path" || src == "url" || src == "file_id") {
+			val, _ := t["value"].(string)
+			if val == "" {
+				return nil, apperr.Newf(apperr.Validation, "MCP media source %s requires a value", src)
+			}
+			if src == "path" {
+				canon, err := a.Policy.Authorize(val)
+				if err != nil {
+					return nil, err
+				}
+				out := maps.Clone(t)
+				out["value"] = canon
+				return out, nil
+			}
+			return t, nil
+		}
+		if ok && src == "upload" {
+			return nil, apperr.New(apperr.Validation, "MCP media source must be path, url, or file_id")
+		}
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			sub, err := a.Authorize(val)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = sub
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(t))
+		for i, val := range t {
+			sub, err := a.Authorize(val)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = sub
+		}
+		return out, nil
+	}
+	return v, nil
+}
+
+// RemoteAuthorizer rejects path sources and only permits url and file_id.
+type RemoteAuthorizer struct{}
+
+// Authorize rejects server filesystem paths.
+func (RemoteAuthorizer) Authorize(v any) (any, error) {
+	switch t := v.(type) {
+	case map[string]any:
+		src, ok := t["source"].(string)
+		if ok && (src == "path" || src == "url" || src == "file_id" || src == "upload") {
+			if src == "path" {
+				return nil, apperr.New(apperr.FilesystemPolicy,
+					"Remote MCP cannot use server filesystem paths; use a public HTTPS URL or Telegram file_id")
+			}
+			if src != "url" && src != "file_id" {
+				return nil, apperr.New(apperr.Validation,
+					"Remote MCP media must use a public URL or Telegram file_id; chat attachments and generated files cannot be uploaded directly")
+			}
+			val, _ := t["value"].(string)
+			if val == "" {
+				return nil, apperr.Newf(apperr.Validation, "MCP media source %s requires a value", src)
+			}
+			return t, nil
+		}
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			sub, err := RemoteAuthorizer{}.Authorize(val)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = sub
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(t))
+		for i, val := range t {
+			sub, err := RemoteAuthorizer{}.Authorize(val)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = sub
+		}
+		return out, nil
+	}
+	return v, nil
+}
+
+// ToolOptions configures tool creation.
+type ToolOptions struct {
+	CanRead    bool
+	CanSend    bool
+	Authorizer Authorizer
+	IsRemote   bool
+}
+
+func envelopeSchema(payloadProps M) M {
+	payloadProps["disable_notification"] = boolean("Send silently without notifying the recipient.")
+	payloadSchema := M{
+		"type":                 "object",
+		"properties":           payloadProps,
+		"additionalProperties": true,
+	}
+	return M{
+		"type": "object",
+		"properties": M{
+			"to":              str("Chat ID, @username, or alias from list_aliases"),
+			"bot":             str("Bot username; default from list_bots if omitted"),
+			"messageThreadId": posInt("Optional message thread ID (forum topic)"),
+			"payload":         payloadSchema,
+		},
+		"required":             []string{"to", "payload"},
+		"additionalProperties": true,
+	}
+}
+
+func mediaSourceSchema(allowURL, allowPath bool) M {
+	sources := []string{}
+	if allowPath {
+		sources = append(sources, "path")
+	}
+	if allowURL {
+		sources = append(sources, "url")
+	}
+	sources = append(sources, "file_id")
+
+	desc := "Use a policy-approved path, a public URL where supported, or a Telegram file_id."
+	if !allowPath {
+		if allowURL {
+			desc = "Use a public HTTPS URL reachable by Telegram or a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP."
+		} else {
+			desc = "Use a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP."
+		}
+	}
+	return M{
+		"type": "object",
+		"properties": M{
+			"source": enum(desc, sources...),
+			"value":  str(desc),
+		},
+		"required":             []string{"source", "value"},
+		"additionalProperties": true,
+	}
+}
+
+func parseEnvelope(args map[string]any) (to, bot string, thread int, payload map[string]any, err error) {
+	to, _ = args["to"].(string)
+	if to == "" {
+		return "", "", 0, nil, apperr.New(apperr.Validation, "Field \"to\" is required")
+	}
+	bot, _ = args["bot"].(string)
+	if t, ok := args["messageThreadId"].(int); ok {
+		thread = t
+	} else if f, ok := asFloat(args["messageThreadId"]); ok {
+		thread = int(f)
+	}
+	p, ok := args["payload"].(map[string]any)
+	if !ok || p == nil {
+		return "", "", 0, nil, apperr.New(apperr.Validation, "Field \"payload\" must be an object")
+	}
+	return to, bot, thread, maps.Clone(p), nil
+}
+
+// BuildTools constructs the 11 MCP tools configured with opts.
+func BuildTools(a *app.App, opts ToolOptions) []Tool {
+	allowPath := !opts.IsRemote
+	tools := []Tool{
+		{
+			Name:        "list_aliases",
+			Title:       "List aliases",
+			Description: "List recipient aliases that can be used as `to`. Each alias includes type (`group` or `private`)",
+			Schema:      M{"type": "object", "properties": M{}, "additionalProperties": true},
+			ReadOnly:    true,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanRead {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:read is required")
+				}
+				aliases, err := a.Aliases.List()
+				if err != nil {
+					return nil, err
+				}
+				if aliases == nil {
+					aliases = []store.Alias{}
+				}
+				return map[string]any{"aliases": aliases}, nil
+			},
+		},
+		{
+			Name:        "list_bots",
+			Title:       "List bots",
+			Description: "List registered bots and which one is the default.",
+			Schema:      M{"type": "object", "properties": M{}, "additionalProperties": true},
+			ReadOnly:    true,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanRead {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:read is required")
+				}
+				bots, err := a.Bots.List()
+				if err != nil {
+					return nil, err
+				}
+				if bots == nil {
+					bots = []store.Bot{}
+				}
+				return map[string]any{"bots": bots}, nil
+			},
+		},
+		{
+			Name:  "get_telegram_parameter_doc",
+			Title: "Get Telegram parameter docs",
+			Description: "Return advanced parameter docs for a Telegram Bot API method or Telesend message type. " +
+				"ONLY call this tool if you need advanced parameters or customization options not available in the send_* tool schemas. " +
+				"DO NOT call this tool if the basic parameters (e.g. text, parse_mode, caption, file, type, disable_notification) are sufficient for your task. " +
+				"Accepts Telegram method names (e.g. \"sendMessage\", \"sendPhoto\") or Telesend types (e.g. \"text\", \"photo\", \"poll\").",
+			Schema: M{
+				"type": "object",
+				"properties": M{
+					"method": str("Telegram method name or Telesend type. Known values: " + strings.Join(KnownQueries, ", ")),
+				},
+				"required":             []string{"method"},
+				"additionalProperties": true,
+			},
+			ReadOnly: true,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				method, _ := args["method"].(string)
+				doc, ok := MethodDocFor(method)
+				if !ok {
+					return nil, apperr.Newf(apperr.NotFound, "No docs found for %q. Valid queries: %s", method, strings.Join(KnownQueries, ", "))
+				}
+				return doc, nil
+			},
+		},
+		{
+			Name:  "send_text",
+			Title: "Send text message",
+			Description: "Send a Telegram text message. Use parse_mode: \"HTML\" or \"MarkdownV2\" for formatting. " +
+				"Add draft_id to send as a streaming draft instead of a regular message.",
+			Schema: envelopeSchema(M{
+				"text":       strAny("Message text. Required unless draft_id is set."),
+				"draft_id":   posInt("Set to send as a streaming draft (thinking indicator) instead of a chat message."),
+				"parse_mode": enum("Text formatting mode. Recommended: \"HTML\" or \"MarkdownV2\".", "HTML", "MarkdownV2", "Markdown"),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				draftID, isDraft := payload["draft_id"]
+				text, _ := payload["text"].(string)
+				if !isDraft && text == "" {
+					return nil, apperr.New(apperr.Validation, "Field \"text\" is required when draft_id is not set")
+				}
+				typ := "text"
+				if isDraft {
+					typ = "message-draft"
+					payload["draft_id"] = draftID
+				}
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: typ, To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+		{
+			Name:  "send_rich_message",
+			Title: "Send rich message",
+			Description: "Send a rich/structured Telegram message. " +
+				"Add draft_id to send as a streaming draft instead.",
+			Schema: envelopeSchema(M{
+				"rich_message": looseObj("Rich message content, e.g. { markdown: '**Hello**' }."),
+				"draft_id":     posInt("Set to send as a streaming rich-message draft."),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				typ := "rich-message"
+				if _, isDraft := payload["draft_id"]; isDraft {
+					typ = "rich-message-draft"
+				}
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: typ, To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+		{
+			Name:  "send_media",
+			Title: "Send media file",
+			Description: "Send a single media file. Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
+				"video_note and live_photo do not support URL sources. " +
+				"live_photo also requires a photo field (the still frame). " +
+				"Add caption for a text caption below the media.",
+			Schema: envelopeSchema(M{
+				"type":       enum("Media type to send.", "photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"),
+				"file":       mediaSourceSchema(true, allowPath),
+				"photo":      mediaSourceSchema(false, allowPath),
+				"caption":    strAny("Optional caption displayed below the media (max 1024 chars)."),
+				"parse_mode": enum("Parse mode for the caption.", "HTML", "MarkdownV2", "Markdown"),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				mediaType, _ := payload["type"].(string)
+				validTypes := []string{"photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"}
+				if !slices.Contains(validTypes, mediaType) {
+					return nil, apperr.Newf(apperr.Validation, "Invalid media type %q. Use: %s", mediaType, strings.Join(validTypes, ", "))
+				}
+				file, hasFile := payload["file"].(map[string]any)
+				if !hasFile || file == nil {
+					return nil, apperr.New(apperr.Validation, "Field \"file\" is required for send_media")
+				}
+				if (mediaType == "video_note" || mediaType == "live_photo") && file["source"] == "url" {
+					return nil, apperr.Newf(apperr.Validation, "URL source is not supported for type %q", mediaType)
+				}
+				catalogType := mediaType
+				if mediaType == "video_note" {
+					catalogType = "video-note"
+				} else if mediaType == "live_photo" {
+					catalogType = "live-photo"
+				}
+				fieldName := mediaType
+				delete(payload, "type")
+				delete(payload, "file")
+				payload[fieldName] = file
+
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: catalogType, To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+		{
+			Name:  "send_media_group",
+			Title: "Send media album",
+			Description: "Send 2–10 media files as an album. " +
+				"Add star_count to send as paid media locked behind Telegram Stars. " +
+				"Paid media does not support URL sources.",
+			Schema: envelopeSchema(M{
+				"media": arr(M{
+					"type": "object",
+					"properties": M{
+						"type":  str("Item type: photo, video, audio, or document."),
+						"media": mediaSourceSchema(true, allowPath),
+					},
+					"required":             []string{"type", "media"},
+					"additionalProperties": true,
+				}, "Array of 2–10 media items."),
+				"star_count": posInt("Set to send as paid media (Telegram Stars required to view). Disables URL sources."),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				typ := "media-group"
+				if _, hasStars := payload["star_count"]; hasStars {
+					typ = "paid-media"
+				}
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: typ, To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+		{
+			Name:        "send_location",
+			Title:       "Send location or venue",
+			Description: "Send a geographic location. Add both title and address to send as a named venue instead.",
+			Schema: envelopeSchema(M{
+				"latitude":  number("Latitude of the location."),
+				"longitude": number("Longitude of the location."),
+				"title":     strAny("Venue name. Required together with address to send a venue."),
+				"address":   strAny("Venue address. Required together with title to send a venue."),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				title, hasTitle := payload["title"].(string)
+				addr, hasAddr := payload["address"].(string)
+				hasTitle = hasTitle && title != ""
+				hasAddr = hasAddr && addr != ""
+				if hasTitle != hasAddr {
+					return nil, apperr.New(apperr.Validation, "title and address must both be set to send a venue")
+				}
+				typ := "location"
+				if hasTitle && hasAddr {
+					typ = "venue"
+				}
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: typ, To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+		{
+			Name:        "send_contact",
+			Title:       "Send contact",
+			Description: "Send a phone contact card.",
+			Schema: envelopeSchema(M{
+				"phone_number": str("Contact's phone number."),
+				"first_name":   str("Contact's first name."),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: "contact", To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+		{
+			Name:  "send_interactive",
+			Title: "Send interactive content",
+			Description: "Send interactive content. Set type to: poll, checklist, dice, or game. " +
+				"poll: requires question and options[]. " +
+				"checklist: requires business_connection_id and checklist object. " +
+				"dice: no required fields (optionally set emoji: 🎲🎯🏀⚽🎳🎰). " +
+				"game: requires game_short_name.",
+			Schema: envelopeSchema(M{
+				"type":                   enum("Interactive content type.", "poll", "checklist", "dice", "game"),
+				"question":               strAny("Poll question (required for type: poll)."),
+				"options":                arr(looseObj("Poll option, shape { text: string }"), "Poll answer options, 2–10 items (required for type: poll)."),
+				"business_connection_id": strAny("Business connection ID (required for type: checklist)."),
+				"checklist":              looseObj("Checklist object (required for type: checklist)."),
+				"game_short_name":        strAny("Short name of the HTML5 game from @BotFather (required for type: game)."),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				typ, _ := payload["type"].(string)
+				delete(payload, "type")
+				switch typ {
+				case "poll":
+					if q, _ := payload["question"].(string); q == "" {
+						return nil, apperr.New(apperr.Validation, "Field \"question\" is required for type: poll")
+					}
+					if opts, _ := payload["options"].([]any); len(opts) == 0 {
+						return nil, apperr.New(apperr.Validation, "Field \"options\" is required for type: poll")
+					}
+				case "checklist":
+					if b, _ := payload["business_connection_id"].(string); b == "" {
+						return nil, apperr.New(apperr.Validation, "Field \"business_connection_id\" is required for type: checklist")
+					}
+					if c, _ := payload["checklist"].(map[string]any); c == nil {
+						return nil, apperr.New(apperr.Validation, "Field \"checklist\" is required for type: checklist")
+					}
+				case "game":
+					if g, _ := payload["game_short_name"].(string); g == "" {
+						return nil, apperr.New(apperr.Validation, "Field \"game_short_name\" is required for type: game")
+					}
+				case "dice":
+					// no required fields
+				default:
+					return nil, apperr.New(apperr.Validation, "Field \"type\" is required for send_interactive")
+				}
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: typ, To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+		{
+			Name:        "send_invoice",
+			Title:       "Send invoice",
+			Description: "Send a payment invoice. Use currency: XTR for Telegram Stars payments (no provider_token needed).",
+			Schema: envelopeSchema(M{
+				"title":       str("Product name (1–32 chars)."),
+				"description": str("Product description (1–255 chars)."),
+				"payload":     str("Internal bot payload for this invoice (1–128 bytes, not shown to users)."),
+				"currency":    str("Three-letter ISO 4217 currency code, or \"XTR\" for Telegram Stars."),
+				"prices": arr(objectOf(M{
+					"label":  str("Price label"),
+					"amount": integer("Price amount in smallest units"),
+				}, "label", "amount"), "Price breakdown."),
+			}),
+			ReadOnly: false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				if !opts.CanSend {
+					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:send is required")
+				}
+				to, bot, thread, payload, err := parseEnvelope(args)
+				if err != nil {
+					return nil, err
+				}
+				authorized, err := opts.Authorizer.Authorize(payload)
+				if err != nil {
+					return nil, err
+				}
+				return a.Send(ctx, app.SendRequest{
+					Type: "invoice", To: to, Bot: bot, ThreadID: thread, Payload: authorized.(map[string]any),
+				})
+			},
+		},
+	}
+	return tools
+}
+
+// NewStdioServer creates an MCP server with all tools and file policy for stdio.
+func NewStdioServer(a *app.App, policy *FilePolicy) *Server {
+	tools := BuildTools(a, ToolOptions{
+		CanRead:    true,
+		CanSend:    true,
+		Authorizer: &LocalAuthorizer{Policy: policy},
+		IsRemote:   false,
+	})
+	return NewServer("telesend", "0.1.2", "Send Telegram bot messages through MCP.", "", tools)
+}

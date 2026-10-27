@@ -49,15 +49,16 @@ curl -fsSL https://raw.githubusercontent.com/dsnbyte/telesend/main/install.sh | 
 <details>
 <summary><strong>Build from source</strong></summary>
 
-Requires Bun 1.3+.
+Requires Go 1.22+.
 
 ```sh
-bun install --frozen-lockfile
-bun run build
+make build
+# Or directly:
+go build -ldflags="-s -w" -o dist/telesend ./cmd/telesend
 install -m 755 dist/telesend ~/.local/bin/telesend
 ```
 
-During development, run `bun run src/index.ts` or use `bun link`.
+During development, run `go run ./cmd/telesend` or `make check`.
 </details>
 
 Confirm the installed version:
@@ -84,8 +85,15 @@ telesend alias add ops -1001234567890
 
 **3. Send a message.**
 
+You can send to an alias or directly to a Telegram chat ID:
+
 ```sh
+# Send to an alias
 telesend msg text ops "Hello from Telesend!"
+
+# Or send directly to a chat ID (no alias needed)
+telesend msg text -1001234567890 "Hello to group!"
+telesend msg text 123456789 "Hello to private chat!"
 ```
 
 That's it. Read on for the full feature set.
@@ -102,8 +110,13 @@ telesend alias list --json
 Use `telesend msg` (or `telesend message`) to send any supported message type:
 
 ```sh
-# Simple text
+# Send text to an alias
 telesend msg text ops "Deployment complete"
+
+# Send text directly to a chat ID (no alias needed)
+# Negative IDs are groups/supergroups/channels; positive IDs are private chats:
+telesend msg text -1001234567890 "Deployment complete to group"
+telesend msg text 123456789 "Direct message to user"
 
 # Markdown formatting (uses MarkdownV2)
 telesend msg text ops "*Deployment complete*" --parse-mode=md --silent
@@ -145,12 +158,23 @@ Aliases map a short name to a chat ID and optionally a forum topic. Names may in
 ```sh
 telesend alias add ops -1001234567890 --thread-id 42
 telesend alias add "Team Chat" -1002603419700
+telesend alias add alice 123456789
 telesend alias list
 telesend alias update ops --name incidents --chat-id -1001234567890 --thread-id 99
 telesend alias remove incidents
 ```
 
-An explicit `--thread-id` on a message overrides the thread stored by the alias. MCP `list_aliases` includes `type` so an assistant can send to every group alias.
+The `telesend alias list` command prints an alias table with a **TYPE** column classifying each alias as `group` (negative chat IDs, including supergroups and channels) or `private`:
+
+```text
+NAME       TYPE     CHAT ID         THREAD
+---------  -------  --------------  ------
+ops        group    -1001234567890  42
+Team Chat  group    -1002603419700  -
+alice      private  123456789       -
+```
+
+An explicit `--thread-id` on a message overrides the thread stored by the alias. MCP `list_aliases` and `telesend alias list --json` also include `type` so automated tools can distinguish group and private recipients.
 
 ### Supported Message Types
 
@@ -208,7 +232,7 @@ Each tool accepts `to`, optional `bot`, optional `messageThreadId`, and `payload
 }
 ```
 
-The working directory is allowed by default. Use `--allow-path` to grant access to additional directories. Sensitive files (secrets, private keys, etc.) are always denied. See [the policy reference](docs/mcp-file-policy.md) and [the example config](examples/config.toml).
+The working directory is allowed by default. Use `--allow-path` to grant access to additional directories. Sensitive files (secrets, private keys, etc.) are always denied. See [the policy reference](docs/mcp-file-policy.md) and [the example config](examples/config.json).
 
 ## Remote MCP (ChatGPT, Claude.ai)
 
@@ -219,14 +243,14 @@ For cloud-based AI tools, Telesend exposes Streamable HTTP MCP at `/mcp` with OA
 1. Generate a password hash:
 
 ```sh
-bun run mcp:hash-password
+telesend hash-password
 ```
 
 2. Add to `.env` where Telesend runs:
 
 ```sh
 TELESEND_MCP_PUBLIC_URL=https://telesend.example.com
-TELESEND_MCP_OWNER_PASSWORD_HASH=JGFyZ29uMmlkJHY9MTkkLi4u
+TELESEND_MCP_OWNER_PASSWORD_HASH=replace-with-generated-hash
 ```
 
 3. Start the listener:
@@ -235,7 +259,13 @@ TELESEND_MCP_OWNER_PASSWORD_HASH=JGFyZ29uMmlkJHY9MTkkLi4u
 telesend mcp-serve
 ```
 
-It listens on `http://127.0.0.1:3100` by default. Put an HTTPS reverse proxy in front of it.
+By default it listens on `http://127.0.0.1:3100`. Use `--host` and `--port` to customize the address, matching the REST API (for example, to listen on `0.0.0.0` in Docker or a container environment):
+
+```sh
+telesend mcp-serve --host 0.0.0.0 --port 3100
+```
+
+Put an HTTPS reverse proxy in front of it in production.
 
 ### Connecting ChatGPT
 
@@ -268,13 +298,15 @@ For integrations that don't use MCP — webhooks, CI/CD, custom apps.
 Generate an API key hash:
 
 ```sh
-bun run rest:hash-api-key
+telesend hash-key
 ```
 
 Start the server:
 
 ```sh
 TELESEND_API_KEY='your-secret-key' telesend serve --host 127.0.0.1 --port 3000
+# Or listen on all network interfaces:
+TELESEND_API_KEY='your-secret-key' telesend serve --host 0.0.0.0 --port 3000
 ```
 
 For production, use `TELESEND_API_KEY_HASH` instead of the plaintext key.
@@ -327,7 +359,7 @@ curl -X POST http://127.0.0.1:3000/messages/photo \
 | --- | --- |
 | **Linux** | `~/.local/share/telesend/telesend.db` |
 | **macOS** | `~/Library/Application Support/telesend/` |
-| **MCP config** | `~/.config/telesend/config.toml` (Linux) |
+| **MCP config** | `~/.config/telesend/config.json` (Linux) |
 
 Back up a running database safely:
 
@@ -338,8 +370,7 @@ sqlite3 telesend.db ".backup telesend-backup.db"
 ## Development
 
 ```sh
-bun run typecheck
-bun test
-bun run lint
-bun run build
+make check       # run tests and vet
+go test ./...    # run all unit tests
+make build       # build standalone binary in dist/telesend
 ```
