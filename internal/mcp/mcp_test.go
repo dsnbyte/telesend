@@ -110,6 +110,18 @@ func TestStdioMCPServer(t *testing.T) {
 		t.Fatalf("send_text call: %s", string(sendResp))
 	}
 
+	// call send_text with inline #<thread_id>
+	inlineResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"send_text","arguments":{"to":"-100123#42","payload":{"text":"hi thread"}}}}`))
+	if strings.Contains(string(inlineResp), `"isError":true`) || !strings.Contains(string(inlineResp), `"messageThreadId":42`) {
+		t.Fatalf("send_text inline thread: %s", string(inlineResp))
+	}
+
+	// call send_text with inline #<thread_id> on private chat (thread ignored)
+	privResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"send_text","arguments":{"to":"123456#42","payload":{"text":"hi private"}}}}`))
+	if strings.Contains(string(privResp), `"isError":true`) || strings.Contains(string(privResp), "messageThreadId") {
+		t.Fatalf("send_text private inline thread ignored: %s", string(privResp))
+	}
+
 	// call get_telegram_parameter_doc
 	docResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_telegram_parameter_doc","arguments":{"method":"sendMessage"}}}`))
 	if strings.Contains(string(docResp), `"isError":true`) || !strings.Contains(string(docResp), "sendMessage") {

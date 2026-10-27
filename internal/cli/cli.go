@@ -303,7 +303,7 @@ func runAlias(args []string, a *app.App, ioStreams IO, jsonMode bool) error {
 
 func runMsg(ctx context.Context, args []string, a *app.App, ioStreams IO, jsonMode bool) error {
 	if len(args) < 2 {
-		return apperr.New(apperr.Validation, "Usage: telesend msg <type> <alias|chat-id> [content] [options]")
+		return apperr.New(apperr.Validation, "Usage: telesend msg <type> <alias|chat-id>[#<thread_id>] [content] [options]")
 	}
 	typ, to := args[0], args[1]
 	op, ok := telegram.Get(typ)
@@ -756,7 +756,7 @@ Usage:
   telesend [--json] bot add|list|default|remove
   telesend [--json] alias add <name> <chat-id> [--thread-id <id>]
   telesend [--json] alias list|update|remove
-  telesend [--json] msg|message <type> <alias|chat-id> [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
+  telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
   telesend serve [--host <host>] [--port <port>]
   telesend mcp [--config <path>] [--allow-path <path> ...]
   telesend mcp-serve [--host <host>] [--port <port>]

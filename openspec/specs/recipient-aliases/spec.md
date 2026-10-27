@@ -42,7 +42,7 @@ The system SHALL allow operators to create, list, update, and delete uniquely na
 - **THEN** the alias can no longer be resolved
 
 ### Requirement: Resolve aliases and direct chat IDs
-The system SHALL accept either a stored alias or a direct Telegram chat ID as a message destination. An explicitly supplied message thread ID SHALL override the thread stored by an alias.
+The system SHALL accept either a stored alias or a direct Telegram chat ID as a message destination. An explicitly supplied message thread ID SHALL override the thread stored by an alias. The system SHALL support specifying a message thread ID by appending `#<thread_id>` after the alias or chat ID (`<chat_id or alias>#<thread_id>`), without replacing argument-based thread configuration. When targeting a private chat, any thread ID SHALL be ignored.
 
 #### Scenario: Resolve an alias with a thread
 - **WHEN** a delivery targets an alias containing a chat ID and message thread ID and supplies no explicit thread
@@ -51,6 +51,14 @@ The system SHALL accept either a stored alias or a direct Telegram chat ID as a 
 #### Scenario: Override an alias thread
 - **WHEN** a delivery targets an alias and supplies an explicit message thread ID
 - **THEN** the system uses the alias chat ID and the explicit thread ID
+
+#### Scenario: Resolve recipient with inline thread
+- **WHEN** a delivery targets an alias or chat ID with `#<thread_id>` appended and supplies no explicit thread
+- **THEN** the system uses the resolved chat ID and the inline thread ID
+
+#### Scenario: Ignore thread ID for private chat
+- **WHEN** a delivery targets a private chat ID or private chat alias with a thread ID specified via argument or `#<thread_id>`
+- **THEN** the system uses the private chat ID and ignores the thread ID
 
 #### Scenario: Use a direct chat ID
 - **WHEN** a delivery supplies a valid direct chat ID

@@ -195,6 +195,24 @@ func TestCLIMessageSending(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"chatId": "-100123"`) {
 		t.Fatalf("msg json: %d %q", code, out)
 	}
+
+	// 6. Inline #<thread_id> syntax
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"msg", "text", "ops#42", "Thread syntax test"}, "")
+	if code != 0 || !strings.Contains(out, "Thread") || !strings.Contains(out, "42") {
+		t.Fatalf("msg inline thread: %d %q", code, out)
+	}
+
+	// 7. Explicit --thread-id overrides inline #<thread_id>
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"msg", "text", "ops#42", "Override test", "--thread-id", "99"}, "")
+	if code != 0 || !strings.Contains(out, "Thread") || !strings.Contains(out, "99") {
+		t.Fatalf("msg inline thread override: %d %q", code, out)
+	}
+
+	// 8. Direct private chat ID ignores thread
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"msg", "text", "123456#42", "Private chat test"}, "")
+	if code != 0 || strings.Contains(out, "Thread") {
+		t.Fatalf("msg private inline thread ignored: %d %q", code, out)
+	}
 }
 
 func TestCLIServerOptions(t *testing.T) {

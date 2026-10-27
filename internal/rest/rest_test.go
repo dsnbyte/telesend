@@ -125,6 +125,36 @@ func TestRESTServer(t *testing.T) {
 		t.Fatalf("send direct chat id: %d", chatRes.StatusCode)
 	}
 
+	// Send message with inline thread syntax
+	inlineRes := req(http.MethodPost, "/messages/text", []byte(`{"to":"ops#42","payload":{"text":"inline thread test"}}`), "application/json")
+	if inlineRes.StatusCode != 200 {
+		t.Fatalf("send inline thread: %d", inlineRes.StatusCode)
+	}
+	var inlineData struct {
+		Data struct {
+			ThreadID int `json:"messageThreadId"`
+		} `json:"data"`
+	}
+	json.NewDecoder(inlineRes.Body).Decode(&inlineData)
+	if inlineData.Data.ThreadID != 42 {
+		t.Fatalf("expected thread 42 from inline syntax: %+v", inlineData)
+	}
+
+	// Send message to private chat with inline thread (ignored)
+	privRes := req(http.MethodPost, "/messages/text", []byte(`{"to":"123456#42","payload":{"text":"private inline thread test"}}`), "application/json")
+	if privRes.StatusCode != 200 {
+		t.Fatalf("send private inline thread: %d", privRes.StatusCode)
+	}
+	var privData struct {
+		Data struct {
+			ThreadID int `json:"messageThreadId"`
+		} `json:"data"`
+	}
+	json.NewDecoder(privRes.Body).Decode(&privData)
+	if privData.Data.ThreadID != 0 {
+		t.Fatalf("expected thread 0 for private chat: %+v", privData)
+	}
+
 	// Reject server paths in JSON
 	pathRes := req(http.MethodPost, "/messages/document", []byte(`{"to":"ops","payload":{"document":{"source":"path","value":"/etc/passwd"}}}`), "application/json")
 	if pathRes.StatusCode != 400 {

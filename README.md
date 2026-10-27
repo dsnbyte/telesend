@@ -124,8 +124,10 @@ telesend msg text ops "*Deployment complete*" --parse-mode=md --silent
 # HTML formatting
 telesend msg text ops "<b>Deployment complete</b>" --parse-mode=html
 
-# Send to a specific bot and forum thread
+# Send to a specific bot and forum thread (via flag or #<thread_id> syntax)
 telesend msg text ops "Alert!" --bot alerts_bot --thread-id 42
+telesend msg text ops#42 "Alert to forum topic"
+telesend msg text -1001234567890#42 "Alert to forum topic directly"
 
 # Photos — local file, URL, or Telegram file_id
 telesend msg photo ops ./chart.png --caption "Daily chart"
@@ -174,7 +176,7 @@ Team Chat  group    -1002603419700  -
 alice      private  123456789       -
 ```
 
-An explicit `--thread-id` on a message overrides the thread stored by the alias. MCP `list_aliases` and `telesend alias list --json` also include `type` so automated tools can distinguish group and private recipients.
+An explicit `--thread-id` or `#<thread_id>` appended to the recipient (e.g. `ops#42` or `-1001234567890#42`) targets a forum thread in a group and overrides the thread stored by an alias. If the destination is a private chat, thread IDs are ignored. MCP `list_aliases` and `telesend alias list --json` also include `type` so automated tools can distinguish group and private recipients.
 
 ### Supported Message Types
 

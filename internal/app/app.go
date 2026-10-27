@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/dsnbyte/telesend/internal/apperr"
@@ -95,27 +96,60 @@ type Recipient struct {
 
 // ResolveRecipient turns target into a chat. A numeric target is used as a
 // chat ID directly; anything else must be an alias. An explicit thread ID
-// (non-zero) overrides the alias's stored thread.
+// (non-zero) overrides the alias's stored thread. A thread ID can also be
+// specified by appending #<thread_id> to the target. For private chats,
+// the thread ID is ignored.
 func (a *App) ResolveRecipient(target string, explicitThread int) (Recipient, error) {
 	if explicitThread < 0 {
 		return Recipient{}, apperr.New(apperr.Validation, "Message thread ID must be a positive integer")
 	}
 	target = strings.TrimSpace(target)
-	if store.IsChatID(target) {
-		return Recipient{ChatID: target, ThreadID: explicitThread}, nil
+	base := target
+	var inlineThread int
+	if strings.Contains(target, "#") {
+		parts := strings.Split(target, "#")
+		if len(parts) != 2 {
+			return Recipient{}, apperr.New(apperr.Validation, "Message thread ID must be a positive integer")
+		}
+		base = strings.TrimSpace(parts[0])
+		threadStr := strings.TrimSpace(parts[1])
+		tid, err := strconv.Atoi(threadStr)
+		if err != nil || tid <= 0 {
+			return Recipient{}, apperr.New(apperr.Validation, "Message thread ID must be a positive integer")
+		}
+		inlineThread = tid
 	}
-	alias, err := a.Aliases.Find(target)
-	if err != nil {
-		return Recipient{}, err
+
+	var chatID string
+	var aliasThread *int
+	if store.IsChatID(base) {
+		chatID = base
+	} else {
+		alias, err := a.Aliases.Find(base)
+		if err != nil {
+			return Recipient{}, err
+		}
+		if alias == nil {
+			return Recipient{}, apperr.Newf(apperr.NotFound, "Recipient alias %q was not found", base)
+		}
+		chatID = alias.ChatID
+		aliasThread = alias.MessageThreadID
 	}
-	if alias == nil {
-		return Recipient{}, apperr.Newf(apperr.NotFound, "Recipient alias %q was not found", target)
+
+	thread := 0
+	if explicitThread > 0 {
+		thread = explicitThread
+	} else if inlineThread > 0 {
+		thread = inlineThread
+	} else if aliasThread != nil {
+		thread = *aliasThread
 	}
-	r := Recipient{ChatID: alias.ChatID, ThreadID: explicitThread}
-	if r.ThreadID == 0 && alias.MessageThreadID != nil {
-		r.ThreadID = *alias.MessageThreadID
+
+	if store.TypeOf(chatID) == store.TypePrivate {
+		thread = 0
 	}
-	return r, nil
+
+	return Recipient{ChatID: chatID, ThreadID: thread}, nil
 }
 
 // SendRequest describes one message delivery.
@@ -171,6 +205,8 @@ func (a *App) Send(ctx context.Context, req SendRequest) (*Delivery, error) {
 	payload["chat_id"] = rcpt.ChatID
 	if rcpt.ThreadID != 0 {
 		payload["message_thread_id"] = rcpt.ThreadID
+	} else {
+		delete(payload, "message_thread_id")
 	}
 
 	raw, err := a.Telegram.Call(ctx, bot.Token, op.Method, payload)

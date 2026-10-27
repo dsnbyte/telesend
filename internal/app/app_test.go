@@ -88,3 +88,218 @@ func TestAppEndToEnd(t *testing.T) {
 		t.Fatalf("calls: %d", len(tg.Calls()))
 	}
 }
+
+func TestResolveRecipient(t *testing.T) {
+	a, _ := testutil.NewApp(t)
+
+	thread := 12
+	_, err := a.Aliases.Create(store.AliasInput{Name: "ops", ChatID: "-100123", MessageThreadID: &thread})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	teamThread := 20
+	_, err = a.Aliases.Create(store.AliasInput{Name: "ops team", ChatID: "-100456", MessageThreadID: &teamThread})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Alias configured thread is used when no argument or inline thread is provided
+	r, err := a.ResolveRecipient("ops", 0)
+	if err != nil || r.ChatID != "-100123" || r.ThreadID != 12 {
+		t.Fatalf("alias default: %+v %v", r, err)
+	}
+
+	// 2. Passing a thread ID argument overrides the thread ID configured for an alias
+	r, err = a.ResolveRecipient("ops", 99)
+	if err != nil || r.ChatID != "-100123" || r.ThreadID != 99 {
+		t.Fatalf("alias arg override: %+v %v", r, err)
+	}
+
+	// 3. Specifying a thread ID by appending #<thread_id> after the alias
+	r, err = a.ResolveRecipient("ops#42", 0)
+	if err != nil || r.ChatID != "-100123" || r.ThreadID != 42 {
+		t.Fatalf("alias inline thread: %+v %v", r, err)
+	}
+
+	// 4. Specifying a thread ID by appending #<thread_id> after the chat ID
+	r, err = a.ResolveRecipient("-100123#42", 0)
+	if err != nil || r.ChatID != "-100123" || r.ThreadID != 42 {
+		t.Fatalf("chat id inline thread: %+v %v", r, err)
+	}
+
+	// 5. Specifying a thread ID with an alias containing spaces
+	r, err = a.ResolveRecipient("ops team#88", 0)
+	if err != nil || r.ChatID != "-100456" || r.ThreadID != 88 {
+		t.Fatalf("alias with spaces inline thread: %+v %v", r, err)
+	}
+
+	// 6. Explicit thread argument overrides #<thread_id>
+	r, err = a.ResolveRecipient("ops#42", 99)
+	if err != nil || r.ChatID != "-100123" || r.ThreadID != 99 {
+		t.Fatalf("arg override inline thread alias: %+v %v", r, err)
+	}
+	r, err = a.ResolveRecipient("-100123#42", 99)
+	if err != nil || r.ChatID != "-100123" || r.ThreadID != 99 {
+		t.Fatalf("arg override inline thread chat id: %+v %v", r, err)
+	}
+
+	// 7. Invalid thread IDs return validation error
+	invalidTargets := []string{
+		"ops#abc", "ops#0", "ops#-5", "ops#", "ops#1#2",
+		"-100123#abc", "-100123#0", "-100123#-1", "-100123#",
+	}
+	for _, target := range invalidTargets {
+		_, err := a.ResolveRecipient(target, 0)
+		if err == nil {
+			t.Fatalf("expected error for invalid target %q", target)
+		}
+	}
+
+	// 8. Negative explicitThread returns validation error
+	if _, err := a.ResolveRecipient("ops", -1); err == nil {
+		t.Fatal("expected error for negative explicitThread")
+	}
+
+	// 9. Unknown alias returns not found error
+	if _, err := a.ResolveRecipient("nonexistent#42", 0); err == nil || err.Error() != `Recipient alias "nonexistent" was not found` {
+		t.Fatalf("expected not found error: %v", err)
+	}
+}
+
+func TestResolveRecipientPrivateChat(t *testing.T) {
+	a, _ := testutil.NewApp(t)
+
+	_, err := a.Aliases.Create(store.AliasInput{Name: "alice", ChatID: "123456"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Direct private chat ID ignores #<thread_id>
+	r, err := a.ResolveRecipient("123456#42", 0)
+	if err != nil || r.ChatID != "123456" || r.ThreadID != 0 {
+		t.Fatalf("direct private chat inline thread: %+v %v", r, err)
+	}
+
+	// 2. Direct private chat ID ignores explicit thread argument
+	r, err = a.ResolveRecipient("123456", 42)
+	if err != nil || r.ChatID != "123456" || r.ThreadID != 0 {
+		t.Fatalf("direct private chat arg thread: %+v %v", r, err)
+	}
+
+	// 3. Direct private chat ID ignores both
+	r, err = a.ResolveRecipient("123456#42", 99)
+	if err != nil || r.ChatID != "123456" || r.ThreadID != 0 {
+		t.Fatalf("direct private chat both threads: %+v %v", r, err)
+	}
+
+	// 4. Alias pointing to private chat ignores #<thread_id>
+	r, err = a.ResolveRecipient("alice#42", 0)
+	if err != nil || r.ChatID != "123456" || r.ThreadID != 0 {
+		t.Fatalf("private alias inline thread: %+v %v", r, err)
+	}
+
+	// 5. Alias pointing to private chat ignores explicit thread argument
+	r, err = a.ResolveRecipient("alice", 42)
+	if err != nil || r.ChatID != "123456" || r.ThreadID != 0 {
+		t.Fatalf("private alias arg thread: %+v %v", r, err)
+	}
+
+	// 6. Alias pointing to private chat ignores both
+	r, err = a.ResolveRecipient("alice#42", 99)
+	if err != nil || r.ChatID != "123456" || r.ThreadID != 0 {
+		t.Fatalf("private alias both threads: %+v %v", r, err)
+	}
+
+	// 7. Invalid thread ID format on private chat still returns validation error
+	if _, err := a.ResolveRecipient("123456#abc", 0); err == nil {
+		t.Fatal("expected validation error for 123456#abc")
+	}
+	if _, err := a.ResolveRecipient("alice#abc", 0); err == nil {
+		t.Fatal("expected validation error for alice#abc")
+	}
+}
+
+func TestSendWithThreadSyntax(t *testing.T) {
+	a, tg := testutil.NewApp(t)
+
+	_, err := a.RegisterBot(context.Background(), "bot_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	thread := 10
+	_, err = a.Aliases.Create(store.AliasInput{Name: "ops", ChatID: "-100123", MessageThreadID: &thread})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.Aliases.Create(store.AliasInput{Name: "alice", ChatID: "123456"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Send to ops#42 sets message_thread_id to 42
+	d, err := a.Send(context.Background(), app.SendRequest{
+		Type:    "text",
+		To:      "ops#42",
+		Payload: map[string]any{"text": "msg to ops thread 42"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ChatID != "-100123" || d.ThreadID != 42 {
+		t.Fatalf("expected thread 42: %+v", d)
+	}
+	lastCall := tg.Calls()[len(tg.Calls())-1]
+	if lastCall.JSON["message_thread_id"] == nil {
+		t.Fatalf("expected message_thread_id in call: %+v", lastCall.JSON)
+	}
+
+	// 2. Send to ops#42 with ThreadID 99 argument overrides to 99
+	d, err = a.Send(context.Background(), app.SendRequest{
+		Type:     "text",
+		To:       "ops#42",
+		ThreadID: 99,
+		Payload:  map[string]any{"text": "msg to ops thread 99 override"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ChatID != "-100123" || d.ThreadID != 99 {
+		t.Fatalf("expected thread 99: %+v", d)
+	}
+
+	// 3. Send to private chat alias alice#42 ignores thread ID
+	d, err = a.Send(context.Background(), app.SendRequest{
+		Type:    "text",
+		To:      "alice#42",
+		Payload: map[string]any{"text": "msg to alice"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ChatID != "123456" || d.ThreadID != 0 {
+		t.Fatalf("expected thread 0 for private chat alias: %+v", d)
+	}
+	lastCall = tg.Calls()[len(tg.Calls())-1]
+	if lastCall.JSON["message_thread_id"] != nil {
+		t.Fatalf("expected no message_thread_id for private chat: %+v", lastCall.JSON)
+	}
+
+	// 4. Send to direct private chat ID 123456#42 ignores thread ID
+	d, err = a.Send(context.Background(), app.SendRequest{
+		Type:    "text",
+		To:      "123456#42",
+		Payload: map[string]any{"text": "msg to direct private chat"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ChatID != "123456" || d.ThreadID != 0 {
+		t.Fatalf("expected thread 0 for direct private chat: %+v", d)
+	}
+	lastCall = tg.Calls()[len(tg.Calls())-1]
+	if lastCall.JSON["message_thread_id"] != nil {
+		t.Fatalf("expected no message_thread_id for private chat: %+v", lastCall.JSON)
+	}
+}
