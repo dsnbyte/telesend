@@ -162,11 +162,13 @@ telesend alias add ops -1001234567890 --thread-id 42
 telesend alias add "Team Chat" -1002603419700
 telesend alias add alice 123456789
 telesend alias list
+telesend alias list group       # list only group aliases
+telesend alias list private     # list only private aliases
 telesend alias update ops --name incidents --chat-id -1001234567890 --thread-id 99
 telesend alias remove incidents
 ```
 
-The `telesend alias list` command prints an alias table with a **TYPE** column classifying each alias as `group` (negative chat IDs, including supergroups and channels) or `private`:
+The `telesend alias list` command prints an alias table with a **TYPE** column classifying each alias as `group` (negative chat IDs, including supergroups and channels) or `private`. It accepts an optional `group` or `private` filter argument to list only matching aliases:
 
 ```text
 NAME       TYPE     CHAT ID         THREAD
@@ -176,7 +178,7 @@ Team Chat  group    -1002603419700  -
 alice      private  123456789       -
 ```
 
-An explicit `--thread-id` or `#<thread_id>` appended to the recipient (e.g. `ops#42` or `-1001234567890#42`) targets a forum thread in a group and overrides the thread stored by an alias. If the destination is a private chat, thread IDs are ignored. MCP `list_aliases` and `telesend alias list --json` also include `type` so automated tools can distinguish group and private recipients.
+An explicit `--thread-id` or `#<thread_id>` appended to the recipient (e.g. `ops#42` or `-1001234567890#42`) targets a forum thread in a group and overrides the thread stored by an alias. If the destination is a private chat, thread IDs are ignored. MCP `list_aliases` supports filtering by `type` or `filter` (`group` or `private`), and both MCP and `telesend alias list --json` include `type` so automated tools can distinguish group and private recipients.
 
 ### Supported Message Types
 

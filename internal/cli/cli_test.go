@@ -144,6 +144,36 @@ func TestCLIAliasManagementAndTypeColumn(t *testing.T) {
 		t.Fatalf("expected type field in json: %+v", aliases)
 	}
 
+	// 5b. Filtered list: group and private
+	groupOut, _, code := run(ctx, env.tg, env.wrapper, []string{"alias", "list", "group"}, "")
+	if code != 0 || !strings.Contains(groupOut, "ops") || strings.Contains(groupOut, "alice") {
+		t.Fatalf("alias list group: %d %q", code, groupOut)
+	}
+	privOut, _, code := run(ctx, env.tg, env.wrapper, []string{"alias", "list", "private"}, "")
+	if code != 0 || !strings.Contains(privOut, "alice") || strings.Contains(privOut, "ops") {
+		t.Fatalf("alias list private: %d %q", code, privOut)
+	}
+	flagGroupOut, _, code := run(ctx, env.tg, env.wrapper, []string{"alias", "list", "--group"}, "")
+	if code != 0 || !strings.Contains(flagGroupOut, "ops") || strings.Contains(flagGroupOut, "alice") {
+		t.Fatalf("alias list --group: %d %q", code, flagGroupOut)
+	}
+	flagPrivOut, _, code := run(ctx, env.tg, env.wrapper, []string{"alias", "list", "--private"}, "")
+	if code != 0 || !strings.Contains(flagPrivOut, "alice") || strings.Contains(flagPrivOut, "ops") {
+		t.Fatalf("alias list --private: %d %q", code, flagPrivOut)
+	}
+	groupJSON, _, code := run(ctx, env.tg, env.wrapper, []string{"alias", "list", "group", "--json"}, "")
+	if code != 0 {
+		t.Fatalf("alias list group json: %d %q", code, groupJSON)
+	}
+	var groupAliases []store.Alias
+	if err := json.Unmarshal([]byte(groupJSON), &groupAliases); err != nil || len(groupAliases) != 1 || groupAliases[0].Name != "ops" {
+		t.Fatalf("parse group aliases json: %v %q", err, groupJSON)
+	}
+	_, errOut, code := run(ctx, env.tg, env.wrapper, []string{"alias", "list", "invalid"}, "")
+	if code != 1 || !strings.Contains(errOut, "Filter must be group or private") {
+		t.Fatalf("alias list invalid filter: %d %q", code, errOut)
+	}
+
 	// 6. Update alias
 	out, _, code = run(ctx, env.tg, env.wrapper, []string{"alias", "update", "ops", "--name", "incidents", "--thread-id", "99"}, "")
 	if code != 0 || !strings.Contains(out, "Updated alias incidents") || !strings.Contains(out, "Thread   99") {

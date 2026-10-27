@@ -21,6 +21,10 @@ The MCP server SHALL run over standard input and output and SHALL expose categor
 - **WHEN** an MCP client calls `list_aliases`
 - **THEN** each alias includes `type` `group` or `private` so the client can send to every group alias
 
+#### Scenario: Filter aliases by type
+- **WHEN** an MCP client calls `list_aliases` with a `group` or `private` filter
+- **THEN** the returned aliases contain only aliases matching that type
+
 #### Scenario: Attempt administration through MCP
 - **WHEN** an MCP client requests bot or alias mutation
 - **THEN** no such tool is available

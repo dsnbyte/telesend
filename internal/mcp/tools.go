@@ -194,14 +194,50 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:        "list_aliases",
 			Title:       "List aliases",
-			Description: "List recipient aliases that can be used as `to`. Each alias includes type (`group` or `private`)",
-			Schema:      M{"type": "object", "properties": M{}, "additionalProperties": true},
-			ReadOnly:    true,
+			Description: "List recipient aliases that can be used as `to`. Each alias includes type (`group` or `private`). Optional filter (`group` or `private`) allows listing only group or private aliases.",
+			Schema: M{
+				"type": "object",
+				"properties": M{
+					"filter":  enum("Filter aliases by type: \"group\" or \"private\".", "group", "private"),
+					"type":    enum("Filter aliases by type: \"group\" or \"private\".", "group", "private"),
+					"group":   boolean("Filter to only group aliases."),
+					"private": boolean("Filter to only private aliases."),
+				},
+				"additionalProperties": true,
+			},
+			ReadOnly: true,
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				if !opts.CanRead {
 					return nil, apperr.New(apperr.Unauthorized, "MCP scope mcp:read is required")
 				}
-				aliases, err := a.Aliases.List()
+				var filter string
+				if t, ok := args["type"].(string); ok && t != "" {
+					filter = t
+				}
+				if f, ok := args["filter"].(string); ok && f != "" {
+					if filter != "" && filter != f {
+						return nil, apperr.New(apperr.Validation, "Conflicting filter arguments")
+					}
+					filter = f
+				}
+				g, _ := args["group"].(bool)
+				p, _ := args["private"].(bool)
+				if g && p {
+					return nil, apperr.New(apperr.Validation, "Cannot filter by both group and private")
+				}
+				if g {
+					if filter != "" && filter != store.TypeGroup {
+						return nil, apperr.New(apperr.Validation, "Conflicting filter arguments")
+					}
+					filter = store.TypeGroup
+				}
+				if p {
+					if filter != "" && filter != store.TypePrivate {
+						return nil, apperr.New(apperr.Validation, "Conflicting filter arguments")
+					}
+					filter = store.TypePrivate
+				}
+				aliases, err := a.Aliases.List(filter)
 				if err != nil {
 					return nil, err
 				}

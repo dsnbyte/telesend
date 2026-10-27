@@ -15,6 +15,7 @@ import (
 
 	"github.com/dsnbyte/telesend/internal/mcp"
 	"github.com/dsnbyte/telesend/internal/secret"
+	"github.com/dsnbyte/telesend/internal/store"
 	"github.com/dsnbyte/telesend/internal/testutil"
 )
 
@@ -102,6 +103,35 @@ func TestStdioMCPServer(t *testing.T) {
 	callResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_bots"}}`))
 	if !strings.Contains(string(callResp), "default_bot") {
 		t.Fatalf("list_bots call: %s", string(callResp))
+	}
+
+	// call list_aliases with and without filter
+	a.Aliases.Create(store.AliasInput{Name: "ops", ChatID: "-100123"})
+	a.Aliases.Create(store.AliasInput{Name: "alice", ChatID: "12345"})
+
+	allAliasResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"list_aliases"}}`))
+	if !strings.Contains(string(allAliasResp), "ops") || !strings.Contains(string(allAliasResp), "alice") {
+		t.Fatalf("list_aliases all: %s", string(allAliasResp))
+	}
+
+	groupAliasResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"list_aliases","arguments":{"type":"group"}}}`))
+	if !strings.Contains(string(groupAliasResp), "ops") || strings.Contains(string(groupAliasResp), "alice") {
+		t.Fatalf("list_aliases type=group: %s", string(groupAliasResp))
+	}
+
+	privAliasResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"list_aliases","arguments":{"type":"private"}}}`))
+	if !strings.Contains(string(privAliasResp), "alice") || strings.Contains(string(privAliasResp), "ops") {
+		t.Fatalf("list_aliases type=private: %s", string(privAliasResp))
+	}
+
+	filterGroupResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"list_aliases","arguments":{"filter":"group"}}}`))
+	if !strings.Contains(string(filterGroupResp), "ops") || strings.Contains(string(filterGroupResp), "alice") {
+		t.Fatalf("list_aliases filter=group: %s", string(filterGroupResp))
+	}
+
+	invalidAliasResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"list_aliases","arguments":{"type":"invalid"}}}`))
+	if !strings.Contains(string(invalidAliasResp), `"isError":true`) {
+		t.Fatalf("expected error for invalid type filter: %s", string(invalidAliasResp))
 	}
 
 	// call send_text

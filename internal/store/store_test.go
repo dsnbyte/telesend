@@ -137,6 +137,23 @@ func TestAliasesRepository(t *testing.T) {
 	if len(list) != 1 || list[0].Name != "alice" {
 		t.Fatalf("remaining: %+v", list)
 	}
+
+	// Filtered list
+	_, err = aliases.Create(AliasInput{Name: "alerts", ChatID: "-100789"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupList, err := aliases.List(TypeGroup)
+	if err != nil || len(groupList) != 1 || groupList[0].Name != "alerts" {
+		t.Fatalf("group list: %+v %v", groupList, err)
+	}
+	privList, err := aliases.List(TypePrivate)
+	if err != nil || len(privList) != 1 || privList[0].Name != "alice" {
+		t.Fatalf("private list: %+v %v", privList, err)
+	}
+	if _, err := aliases.List("invalid"); err == nil {
+		t.Fatal("expected error for invalid filter")
+	}
 }
 
 func TestOAuthRepository(t *testing.T) {

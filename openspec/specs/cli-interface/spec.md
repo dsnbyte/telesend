@@ -73,6 +73,14 @@ The CLI SHALL print human-readable text by default. List commands SHALL render a
 - **WHEN** an operator runs `telesend alias list` with at least one alias
 - **THEN** the CLI prints an aligned table of name, type, chat ID, and thread without wrapping the rows in JSON
 
+#### Scenario: List aliases filtered by type
+- **WHEN** an operator runs `telesend alias list group` or `telesend alias list private`
+- **THEN** the CLI prints an aligned table containing only aliases matching the specified type
+
+#### Scenario: List aliases with invalid filter
+- **WHEN** an operator runs `telesend alias list invalid`
+- **THEN** the command exits with a validation error
+
 #### Scenario: Request JSON output
 - **WHEN** an operator passes `--json` to a bot, alias, or message command
 - **THEN** the CLI prints pretty-printed JSON for that command's result

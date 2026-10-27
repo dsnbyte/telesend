@@ -201,7 +201,53 @@ func runAlias(args []string, a *app.App, ioStreams IO, jsonMode bool) error {
 		}
 		return nil
 	case "list":
-		aliases, err := a.Aliases.List()
+		var filter string
+		for i := 1; i < len(args); i++ {
+			arg := args[i]
+			switch {
+			case arg == "--group":
+				if filter != "" && filter != store.TypeGroup {
+					return apperr.New(apperr.Validation, "Conflicting filter arguments")
+				}
+				filter = store.TypeGroup
+			case arg == "--private":
+				if filter != "" && filter != store.TypePrivate {
+					return apperr.New(apperr.Validation, "Conflicting filter arguments")
+				}
+				filter = store.TypePrivate
+			case arg == "--type" || arg == "--filter":
+				if i+1 >= len(args) {
+					return apperr.Newf(apperr.Validation, "%s requires a value", arg)
+				}
+				i++
+				if filter != "" && filter != args[i] {
+					return apperr.New(apperr.Validation, "Conflicting filter arguments")
+				}
+				filter = args[i]
+			case strings.HasPrefix(arg, "--type="):
+				v := strings.TrimPrefix(arg, "--type=")
+				if filter != "" && filter != v {
+					return apperr.New(apperr.Validation, "Conflicting filter arguments")
+				}
+				filter = v
+			case strings.HasPrefix(arg, "--filter="):
+				v := strings.TrimPrefix(arg, "--filter=")
+				if filter != "" && filter != v {
+					return apperr.New(apperr.Validation, "Conflicting filter arguments")
+				}
+				filter = v
+			case arg == "--json":
+				jsonMode = true
+			case strings.HasPrefix(arg, "-"):
+				return apperr.Newf(apperr.Validation, "Unknown flag: %s", arg)
+			default:
+				if filter != "" && filter != arg {
+					return apperr.Newf(apperr.Validation, "Unexpected argument: %s", arg)
+				}
+				filter = arg
+			}
+		}
+		aliases, err := a.Aliases.List(filter)
 		if err != nil {
 			return err
 		}
@@ -817,7 +863,8 @@ func Help() string {
 Usage:
   telesend [--json] bot add|list|default|remove
   telesend [--json] alias add <name> <chat-id> [--thread-id <id>]
-  telesend [--json] alias list|update|remove
+  telesend [--json] alias list [group|private]
+  telesend [--json] alias update|remove
   telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
   telesend serve [--host <host>] [--port <port>] [--no-mcp] [--no-rest]
   telesend mcp [--config <path>] [--allow-path <path> ...]

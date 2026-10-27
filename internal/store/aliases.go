@@ -112,8 +112,15 @@ func (r *Aliases) Create(in AliasInput) (Alias, error) {
 	return a, err
 }
 
-// List returns all aliases ordered by name.
-func (r *Aliases) List() ([]Alias, error) {
+// List returns all aliases ordered by name, optionally filtered by type ("group" or "private").
+func (r *Aliases) List(filter ...string) ([]Alias, error) {
+	var targetType string
+	if len(filter) > 0 && filter[0] != "" {
+		targetType = strings.ToLower(strings.TrimSpace(filter[0]))
+		if targetType != TypeGroup && targetType != TypePrivate {
+			return nil, apperr.New(apperr.Validation, "Filter must be group or private")
+		}
+	}
 	rows, err := r.db.Query("SELECT name, chat_id, message_thread_id FROM aliases ORDER BY name COLLATE NOCASE")
 	if err != nil {
 		return nil, err
@@ -124,6 +131,9 @@ func (r *Aliases) List() ([]Alias, error) {
 		a, err := scanAlias(rows)
 		if err != nil {
 			return nil, err
+		}
+		if targetType != "" && a.Type != targetType {
+			continue
 		}
 		out = append(out, *a)
 	}
