@@ -1,0 +1,425 @@
+package ui_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/dsnbyte/telesend/internal/testutil"
+	"github.com/dsnbyte/telesend/internal/ui"
+)
+
+func setupTestServer(t *testing.T) (*httptest.Server, *http.Client) {
+	t.Helper()
+	a, _ := testutil.NewApp(t)
+	server := ui.NewServer(a)
+	ts := httptest.NewServer(server)
+	t.Cleanup(func() {
+		ts.Close()
+		a.Close()
+	})
+
+	// Client with cookie jar
+	client := ts.Client()
+	return ts, client
+}
+
+func TestStaticAssets(t *testing.T) {
+	ts, client := setupTestServer(t)
+
+	// 1. Root index.html
+	res, err := client.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for /, got %d", res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "telesend") || !strings.Contains(string(body), "app.css") {
+		t.Fatalf("unexpected HTML content: %s", string(body)[:200])
+	}
+
+	// 2. CSS
+	resCSS, err := client.Get(ts.URL + "/app.css")
+	if err != nil || resCSS.StatusCode != 200 {
+		t.Fatalf("expected 200 for /app.css, got %v", resCSS)
+	}
+	resCSS.Body.Close()
+
+	// 3. JS
+	resJS, err := client.Get(ts.URL + "/app.js")
+	if err != nil || resJS.StatusCode != 200 {
+		t.Fatalf("expected 200 for /app.js, got %v", resJS)
+	}
+	resJS.Body.Close()
+
+	// 4. Icon
+	resIcon, err := client.Get(ts.URL + "/icon.png")
+	if err != nil || resIcon.StatusCode != 200 {
+		t.Fatalf("expected 200 for /icon.png, got %v", resIcon)
+	}
+	resIcon.Body.Close()
+}
+
+func TestAuthLifecycleAndEndpoints(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	// Create jar to track cookies across requests
+	jar := make(map[string]*http.Cookie)
+	doReq := func(method, path string, body any) (*http.Response, []byte) {
+		var r io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			r = bytes.NewReader(b)
+		}
+		req, _ := http.NewRequest(method, ts.URL+path, r)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		for _, c := range jar {
+			req.AddCookie(c)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range res.Cookies() {
+			if c.MaxAge < 0 {
+				delete(jar, c.Name)
+			} else {
+				jar[c.Name] = c
+			}
+		}
+		data, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res, data
+	}
+
+	// 1. Initial auth status: not initialized
+	res, data := doReq(http.MethodGet, "/api/ui/auth/status", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("status code %d", res.StatusCode)
+	}
+	var st map[string]any
+	_ = json.Unmarshal(data, &st)
+	if st["initialized"] != false || st["authenticated"] != false {
+		t.Fatalf("expected uninitialized: %+v", st)
+	}
+
+	// 2. Accessing protected endpoint before login fails
+	res, _ = doReq(http.MethodGet, "/api/ui/bots", nil)
+	if res.StatusCode != 401 {
+		t.Fatalf("expected 401, got %d", res.StatusCode)
+	}
+
+	// 3. Setup with password mismatch fails
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
+		"password":        "secret123",
+		"confirmPassword": "mismatch",
+	})
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400 for password mismatch, got %d", res.StatusCode)
+	}
+
+	// 4. Setup with matching passwords succeeds
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
+		"password":        "secret123",
+		"confirmPassword": "secret123",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for setup, got %d", res.StatusCode)
+	}
+	if jar["telesend_session"] == nil {
+		t.Fatal("expected telesend_session cookie to be set")
+	}
+
+	// 5. Auth status is now initialized and authenticated
+	res, data = doReq(http.MethodGet, "/api/ui/auth/status", nil)
+	_ = json.Unmarshal(data, &st)
+	if st["initialized"] != true || st["authenticated"] != true {
+		t.Fatalf("expected authenticated: %+v", st)
+	}
+
+	// 6. Setup cannot be run twice
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
+		"password":        "newpass",
+		"confirmPassword": "newpass",
+	})
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400 when setup run again, got %d", res.StatusCode)
+	}
+
+	// 7. Protected endpoint succeeds now
+	res, _ = doReq(http.MethodGet, "/api/ui/bots", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for /bots, got %d", res.StatusCode)
+	}
+
+	// 8. Logout clears session
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/logout", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for logout, got %d", res.StatusCode)
+	}
+	if jar["telesend_session"] != nil {
+		t.Fatal("expected session cookie to be removed after logout")
+	}
+
+	// 9. Login with wrong password fails
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
+		"password": "wrong_password",
+	})
+	if res.StatusCode != 401 {
+		t.Fatalf("expected 401 for wrong password, got %d", res.StatusCode)
+	}
+
+	// 10. Login with correct password succeeds
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
+		"password": "secret123",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for login, got %d", res.StatusCode)
+	}
+	if jar["telesend_session"] == nil {
+		t.Fatal("expected session cookie set after login")
+	}
+
+	// 11. Change password
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/change-password", map[string]string{
+		"currentPassword": "wrong",
+		"newPassword":     "new_secret_456",
+		"confirmPassword": "new_secret_456",
+	})
+	if res.StatusCode != 401 {
+		t.Fatalf("expected 401 for bad current password, got %d", res.StatusCode)
+	}
+
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/change-password", map[string]string{
+		"currentPassword": "secret123",
+		"newPassword":     "new_secret_456",
+		"confirmPassword": "new_secret_456",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for change password, got %d", res.StatusCode)
+	}
+
+	// Logout and test login with new password
+	doReq(http.MethodPost, "/api/ui/auth/logout", nil)
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
+		"password": "secret123",
+	})
+	if res.StatusCode != 401 {
+		t.Fatal("expected old password to fail")
+	}
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
+		"password": "new_secret_456",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected new password to succeed, got %d", res.StatusCode)
+	}
+}
+
+func TestBotsAndAliasesManagement(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	jar := make(map[string]*http.Cookie)
+	doReq := func(method, path string, body any) (*http.Response, []byte) {
+		var r io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			r = bytes.NewReader(b)
+		}
+		req, _ := http.NewRequest(method, ts.URL+path, r)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		for _, c := range jar {
+			req.AddCookie(c)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range res.Cookies() {
+			jar[c.Name] = c
+		}
+		data, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res, data
+	}
+
+	// Set password
+	doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
+		"password":        "pass123",
+		"confirmPassword": "pass123",
+	})
+
+	// 1. Add bot
+	res, data := doReq(http.MethodPost, "/api/ui/bots", map[string]string{
+		"token": "bot_token",
+	})
+	if res.StatusCode != 201 {
+		t.Fatalf("expected 201 adding bot, got %d %s", res.StatusCode, string(data))
+	}
+	var botRes struct {
+		Data struct {
+			Username  string `json:"username"`
+			Name      string `json:"name"`
+			IsDefault bool   `json:"isDefault"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(data, &botRes)
+	if botRes.Data.Username != "default_bot" || !botRes.Data.IsDefault {
+		t.Fatalf("bot res mismatch: %+v", botRes)
+	}
+
+	// 2. Add second bot
+	doReq(http.MethodPost, "/api/ui/bots", map[string]string{
+		"token": "two_token",
+	})
+
+	// 3. List bots
+	res, data = doReq(http.MethodGet, "/api/ui/bots", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 listing bots, got %d", res.StatusCode)
+	}
+	var listRes struct {
+		Data []struct {
+			Username string `json:"username"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(data, &listRes)
+	if len(listRes.Data) != 2 {
+		t.Fatalf("expected 2 bots, got %d", len(listRes.Data))
+	}
+
+	// 4. Update bot
+	res, data = doReq(http.MethodPatch, "/api/ui/bots/default_bot", map[string]string{
+		"name": "Updated Primary Bot",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 updating bot, got %d %s", res.StatusCode, string(data))
+	}
+
+	// 5. Set default bot
+	res, _ = doReq(http.MethodPost, "/api/ui/bots/other_bot/default", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 setting default bot, got %d", res.StatusCode)
+	}
+
+	// 6. Delete bot
+	res, _ = doReq(http.MethodDelete, "/api/ui/bots/default_bot", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 deleting non-default bot, got %d", res.StatusCode)
+	}
+
+	// 7. Add Alias
+	thread := 42
+	res, data = doReq(http.MethodPost, "/api/ui/aliases", map[string]any{
+		"name":            "ops-team",
+		"chatId":          "-100123456789",
+		"messageThreadId": thread,
+	})
+	if res.StatusCode != 201 {
+		t.Fatalf("expected 201 adding alias, got %d %s", res.StatusCode, string(data))
+	}
+
+	// 8. Add Private Alias
+	doReq(http.MethodPost, "/api/ui/aliases", map[string]any{
+		"name":   "alice",
+		"chatId": "12345678",
+	})
+
+	// 9. List aliases with filter
+	res, data = doReq(http.MethodGet, "/api/ui/aliases?filter=group", nil)
+	var aliasList struct {
+		Data []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(data, &aliasList)
+	if len(aliasList.Data) != 1 || aliasList.Data[0].Name != "ops-team" {
+		t.Fatalf("expected 1 group alias: %+v", aliasList)
+	}
+
+	// 10. Update Alias
+	res, _ = doReq(http.MethodPatch, "/api/ui/aliases/ops-team", map[string]any{
+		"name":   "ops-renamed",
+		"chatId": "-100987654321",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 updating alias, got %d", res.StatusCode)
+	}
+
+	// 11. Delete Alias
+	res, _ = doReq(http.MethodDelete, "/api/ui/aliases/alice", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 deleting alias, got %d", res.StatusCode)
+	}
+
+	// 12. Hash Tool
+	res, data = doReq(http.MethodPost, "/api/ui/hash", map[string]string{
+		"type":  "key",
+		"value": "my-secret-key",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for hash tool, got %d", res.StatusCode)
+	}
+	var hashRes struct {
+		EnvLine string `json:"envLine"`
+	}
+	_ = json.Unmarshal(data, &hashRes)
+	if !strings.HasPrefix(hashRes.EnvLine, "TELESEND_API_KEY_HASH=") {
+		t.Fatalf("unexpected hash output: %s", hashRes.EnvLine)
+	}
+
+	// 13. Server Info
+	res, data = doReq(http.MethodGet, "/api/ui/server-info", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for server-info, got %d", res.StatusCode)
+	}
+	var srvRes struct {
+		McpTools []any `json:"mcpTools"`
+	}
+	_ = json.Unmarshal(data, &srvRes)
+	if len(srvRes.McpTools) == 0 {
+		t.Fatal("expected mcp tools in server-info")
+	}
+
+	// 14. Send Message (JSON)
+	res, data = doReq(http.MethodPost, "/api/ui/send", map[string]any{
+		"type": "text",
+		"to":   "ops-renamed",
+		"payload": map[string]any{
+			"text": "Hello ops",
+		},
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for send, got %d %s", res.StatusCode, string(data))
+	}
+
+	// 15. Send Message (Multipart with file)
+	var mpBody bytes.Buffer
+	writer := multipart.NewWriter(&mpBody)
+	_ = writer.WriteField("type", "document")
+	_ = writer.WriteField("to", "ops-renamed")
+	part, _ := writer.CreateFormFile("document", "test.txt")
+	_, _ = part.Write([]byte("file content here"))
+	_ = writer.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ui/send", &mpBody)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	for _, c := range jar {
+		req.AddCookie(c)
+	}
+	resMP, err := http.DefaultClient.Do(req)
+	if err != nil || resMP.StatusCode != 200 {
+		t.Fatalf("expected 200 for multipart send, got %v", resMP)
+	}
+	resMP.Body.Close()
+}

@@ -1,0 +1,829 @@
+package ui
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/dsnbyte/telesend/assets"
+	"github.com/dsnbyte/telesend/internal/app"
+	"github.com/dsnbyte/telesend/internal/apperr"
+	"github.com/dsnbyte/telesend/internal/secret"
+	"github.com/dsnbyte/telesend/internal/store"
+	"github.com/dsnbyte/telesend/internal/telegram"
+	"github.com/dsnbyte/telesend/internal/version"
+)
+
+const (
+	sessionCookieName = "telesend_session"
+	sessionDuration   = 7 * 24 * time.Hour
+	maxRequestBytes   = 52 * 1024 * 1024
+)
+
+// Server serves the web UI and handles its internal API.
+type Server struct {
+	app *app.App
+}
+
+// NewServer constructs a UI server backed by an App.
+func NewServer(a *app.App) *Server {
+	return &Server{app: a}
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.ContentLength > maxRequestBytes {
+		writeError(w, apperr.New(apperr.Validation, "Request body is too large"))
+		return
+	}
+
+	path := r.URL.Path
+
+	// Static assets
+	switch path {
+	case "/", "/ui", "/ui/":
+		s.serveStatic(w, r, "static/index.html", "text/html; charset=utf-8")
+		return
+	case "/app.css", "/ui/app.css":
+		s.serveStatic(w, r, "static/app.css", "text/css; charset=utf-8")
+		return
+	case "/app.js", "/ui/app.js":
+		s.serveStatic(w, r, "static/app.js", "application/javascript; charset=utf-8")
+		return
+	case "/favicon.ico", "/icon.png", "/ui/icon.png", "/ui/favicon.ico":
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(assets.Icon)
+		return
+	}
+
+	// API routes
+	if strings.HasPrefix(path, "/api/ui/") {
+		w.Header().Set("Cache-Control", "no-store")
+		apiPath := strings.TrimPrefix(path, "/api/ui")
+		if err := s.routeAPI(w, r, apiPath); err != nil {
+			writeError(w, err)
+		}
+		return
+	}
+
+	http.NotFound(w, r)
+}
+
+func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request, path, contentType string) {
+	data, err := staticFS.ReadFile(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(data)
+}
+
+func (s *Server) routeAPI(w http.ResponseWriter, r *http.Request, path string) error {
+	// Public auth routes
+	switch path {
+	case "/auth/status":
+		return s.handleAuthStatus(w, r)
+	case "/auth/setup":
+		if r.Method != http.MethodPost {
+			return apperr.New(apperr.Validation, "Method not allowed")
+		}
+		return s.handleAuthSetup(w, r)
+	case "/auth/login":
+		if r.Method != http.MethodPost {
+			return apperr.New(apperr.Validation, "Method not allowed")
+		}
+		return s.handleAuthLogin(w, r)
+	}
+
+	// Protected routes require valid session
+	sessionToken := s.getSessionToken(r)
+	valid, err := s.app.UIAuth.ValidateSession(sessionToken)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return apperr.New(apperr.Unauthorized, "Authentication required")
+	}
+
+	// Protected auth routes
+	switch path {
+	case "/auth/change-password":
+		if r.Method != http.MethodPost {
+			return apperr.New(apperr.Validation, "Method not allowed")
+		}
+		return s.handleAuthChangePassword(w, r)
+	case "/auth/logout":
+		if r.Method != http.MethodPost {
+			return apperr.New(apperr.Validation, "Method not allowed")
+		}
+		return s.handleAuthLogout(w, r, sessionToken)
+	}
+
+	// Dashboard Overview
+	if path == "/overview" && r.Method == http.MethodGet {
+		return s.handleOverview(w, r)
+	}
+
+	// Server and MCP info
+	if path == "/server-info" && r.Method == http.MethodGet {
+		return s.handleServerInfo(w, r)
+	}
+
+	// Hash tool
+	if path == "/hash" && r.Method == http.MethodPost {
+		return s.handleHash(w, r)
+	}
+
+	// Bots
+	if path == "/bots" {
+		switch r.Method {
+		case http.MethodGet:
+			return s.handleListBots(w, r)
+		case http.MethodPost:
+			return s.handleAddBot(w, r)
+		}
+	}
+
+	if strings.HasPrefix(path, "/bots/") {
+		sub := strings.TrimPrefix(path, "/bots/")
+		username, action, hasAction := strings.Cut(sub, "/")
+		username, _ = url.PathUnescape(username)
+		if hasAction && action == "default" && r.Method == http.MethodPost {
+			return s.handleSetDefaultBot(w, r, username)
+		}
+		if !hasAction {
+			switch r.Method {
+			case http.MethodPatch:
+				return s.handleUpdateBot(w, r, username)
+			case http.MethodDelete:
+				return s.handleDeleteBot(w, r, username)
+			}
+		}
+	}
+
+	// Aliases
+	if path == "/aliases" {
+		switch r.Method {
+		case http.MethodGet:
+			return s.handleListAliases(w, r)
+		case http.MethodPost:
+			return s.handleAddAlias(w, r)
+		}
+	}
+
+	if strings.HasPrefix(path, "/aliases/") {
+		name, _ := url.PathUnescape(strings.TrimPrefix(path, "/aliases/"))
+		if !strings.Contains(name, "/") {
+			switch r.Method {
+			case http.MethodPatch:
+				return s.handleUpdateAlias(w, r, name)
+			case http.MethodDelete:
+				return s.handleDeleteAlias(w, r, name)
+			}
+		}
+	}
+
+	// Send message
+	if path == "/send" && r.Method == http.MethodPost {
+		return s.handleSend(w, r)
+	}
+
+	return apperr.New(apperr.NotFound, "Endpoint not found")
+}
+
+func (s *Server) getSessionToken(r *http.Request) string {
+	if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
+		return c.Value
+	}
+	return r.Header.Get("X-UI-Session")
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func generateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// Auth Handlers
+
+func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) error {
+	hasPassword, err := s.app.UIAuth.HasPassword()
+	if err != nil {
+		return err
+	}
+	token := s.getSessionToken(r)
+	authenticated, _ := s.app.UIAuth.ValidateSession(token)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"initialized":   hasPassword,
+		"authenticated": authenticated,
+		"version":       version.Version,
+	})
+	return nil
+}
+
+func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) error {
+	hasPassword, err := s.app.UIAuth.HasPassword()
+	if err != nil {
+		return err
+	}
+	if hasPassword {
+		return apperr.New(apperr.Validation, "UI password has already been configured")
+	}
+
+	var body struct {
+		Password        string `json:"password"`
+		ConfirmPassword string `json:"confirmPassword"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apperr.New(apperr.Validation, "Invalid request body")
+	}
+	pw := strings.TrimSpace(body.Password)
+	if pw == "" {
+		return apperr.New(apperr.Validation, "Password cannot be empty")
+	}
+	if pw != strings.TrimSpace(body.ConfirmPassword) {
+		return apperr.New(apperr.Validation, "Passwords do not match")
+	}
+
+	hash, err := secret.Hash(pw)
+	if err != nil {
+		return err
+	}
+	if err := s.app.UIAuth.SetPassword(hash); err != nil {
+		return err
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		return err
+	}
+	if err := s.app.UIAuth.CreateSession(token, sessionDuration); err != nil {
+		return err
+	}
+	s.setSessionCookie(w, r, token, int(sessionDuration.Seconds()))
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return nil
+}
+
+func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apperr.New(apperr.Validation, "Invalid request body")
+	}
+	hash, err := s.app.UIAuth.GetPasswordHash()
+	if err != nil {
+		return err
+	}
+	if hash == "" {
+		return apperr.New(apperr.Validation, "Password not configured; initial setup required")
+	}
+	if !secret.Verify(body.Password, hash) {
+		return apperr.New(apperr.Unauthorized, "Incorrect password")
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		return err
+	}
+	if err := s.app.UIAuth.CreateSession(token, sessionDuration); err != nil {
+		return err
+	}
+	s.setSessionCookie(w, r, token, int(sessionDuration.Seconds()))
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return nil
+}
+
+func (s *Server) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+		ConfirmPassword string `json:"confirmPassword"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apperr.New(apperr.Validation, "Invalid request body")
+	}
+	hash, err := s.app.UIAuth.GetPasswordHash()
+	if err != nil {
+		return err
+	}
+	if hash == "" || !secret.Verify(body.CurrentPassword, hash) {
+		return apperr.New(apperr.Unauthorized, "Current password is incorrect")
+	}
+	newPw := strings.TrimSpace(body.NewPassword)
+	if newPw == "" {
+		return apperr.New(apperr.Validation, "New password cannot be empty")
+	}
+	if newPw != strings.TrimSpace(body.ConfirmPassword) {
+		return apperr.New(apperr.Validation, "New password confirmation does not match")
+	}
+
+	newHash, err := secret.Hash(newPw)
+	if err != nil {
+		return err
+	}
+	if err := s.app.UIAuth.SetPassword(newHash); err != nil {
+		return err
+	}
+
+	// Revoke old sessions and issue a new session token for the current client
+	_ = s.app.UIAuth.DeleteAllSessions()
+	newToken, err := generateToken()
+	if err == nil {
+		_ = s.app.UIAuth.CreateSession(newToken, sessionDuration)
+		s.setSessionCookie(w, r, newToken, int(sessionDuration.Seconds()))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return nil
+}
+
+func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request, token string) error {
+	_ = s.app.UIAuth.DeleteSession(token)
+	s.setSessionCookie(w, r, "", -1)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return nil
+}
+
+// Overview & Info Handlers
+
+func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) error {
+	bots, err := s.app.Bots.List()
+	if err != nil {
+		return err
+	}
+	if bots == nil {
+		bots = []store.Bot{}
+	}
+	aliases, err := s.app.Aliases.List()
+	if err != nil {
+		return err
+	}
+	if aliases == nil {
+		aliases = []store.Alias{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version": version.Version,
+		"bots":    bots,
+		"aliases": aliases,
+	})
+	return nil
+}
+
+func (s *Server) handleServerInfo(w http.ResponseWriter, r *http.Request) error {
+	type catItem struct {
+		Type        string   `json:"type"`
+		Method      string   `json:"method"`
+		Description string   `json:"description"`
+		Required    []string `json:"required"`
+		AllowURL    bool     `json:"allowUrl"`
+	}
+	catalog := make([]catItem, len(telegram.Catalog))
+	for i, op := range telegram.Catalog {
+		catalog[i] = catItem{
+			Type:        op.Type,
+			Method:      op.Method,
+			Description: op.Description,
+			Required:    op.Required,
+			AllowURL:    op.AllowURL,
+		}
+	}
+
+	mcpTools := []map[string]string{
+		{"name": "list_bots", "description": "List all registered Telegram bots and identify the default."},
+		{"name": "list_aliases", "description": "List recipient aliases and chat IDs, optionally filtered by type."},
+		{"name": "send_text", "description": "Send a plain, HTML, or Markdown text message to an alias or chat ID."},
+		{"name": "send_photo", "description": "Send a photo with optional caption from a URL, Telegram file ID, or uploaded file."},
+		{"name": "send_document", "description": "Send a document or file with optional caption from a URL, Telegram file ID, or uploaded file."},
+		{"name": "send_media_group", "description": "Send an album of photos or documents."},
+		{"name": "send_message", "description": "Send any supported Telegram message type using full parameter payload."},
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":        version.Version,
+		"botApiVersion":  telegram.BotAPIVersion,
+		"databaseFile":   filepath.Base(s.app.DatabasePath),
+		"catalog":        catalog,
+		"mcpTools":       mcpTools,
+	})
+	return nil
+}
+
+// Bot Management Handlers
+
+func (s *Server) handleListBots(w http.ResponseWriter, r *http.Request) error {
+	bots, err := s.app.Bots.List()
+	if err != nil {
+		return err
+	}
+	if bots == nil {
+		bots = []store.Bot{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": bots})
+	return nil
+}
+
+func (s *Server) handleAddBot(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Token) == "" {
+		return apperr.New(apperr.Validation, "Field \"token\" is required")
+	}
+	bot, err := s.app.RegisterBot(r.Context(), body.Token)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": bot})
+	return nil
+}
+
+func (s *Server) handleUpdateBot(w http.ResponseWriter, r *http.Request, username string) error {
+	var body struct {
+		Name  string `json:"name"`
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apperr.New(apperr.Validation, "Invalid request body")
+	}
+	bot, err := s.app.UpdateBot(r.Context(), username, store.BotInput{
+		Name:  body.Name,
+		Token: body.Token,
+	})
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": bot})
+	return nil
+}
+
+func (s *Server) handleSetDefaultBot(w http.ResponseWriter, r *http.Request, username string) error {
+	bot, err := s.app.Bots.SetDefault(username)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": bot})
+	return nil
+}
+
+func (s *Server) handleDeleteBot(w http.ResponseWriter, r *http.Request, username string) error {
+	bot, err := s.app.Bots.Remove(username)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": bot})
+	return nil
+}
+
+// Alias Management Handlers
+
+func (s *Server) handleListAliases(w http.ResponseWriter, r *http.Request) error {
+	filter := r.URL.Query().Get("filter")
+	aliases, err := s.app.Aliases.List(filter)
+	if err != nil {
+		return err
+	}
+	if aliases == nil {
+		aliases = []store.Alias{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": aliases})
+	return nil
+}
+
+func (s *Server) handleAddAlias(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		Name            string `json:"name"`
+		ChatID          string `json:"chatId"`
+		MessageThreadID *int   `json:"messageThreadId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apperr.New(apperr.Validation, "Invalid request body")
+	}
+	alias, err := s.app.Aliases.Create(store.AliasInput{
+		Name:            body.Name,
+		ChatID:          body.ChatID,
+		MessageThreadID: body.MessageThreadID,
+	})
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": alias})
+	return nil
+}
+
+func (s *Server) handleUpdateAlias(w http.ResponseWriter, r *http.Request, name string) error {
+	existing, err := s.app.Aliases.Find(name)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return apperr.Newf(apperr.NotFound, "Alias %q was not found", name)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apperr.New(apperr.Validation, "Invalid request body")
+	}
+
+	in := store.AliasInput{
+		Name:            existing.Name,
+		ChatID:          existing.ChatID,
+		MessageThreadID: existing.MessageThreadID,
+	}
+	if n, ok := body["name"].(string); ok && strings.TrimSpace(n) != "" {
+		in.Name = n
+	}
+	if c, ok := body["chatId"].(string); ok && strings.TrimSpace(c) != "" {
+		in.ChatID = c
+	}
+	if t, ok := body["messageThreadId"]; ok {
+		if t == nil {
+			in.MessageThreadID = nil
+		} else if num, ok := t.(float64); ok && num > 0 {
+			v := int(num)
+			in.MessageThreadID = &v
+		} else {
+			return apperr.New(apperr.Validation, "messageThreadId must be a positive integer or null")
+		}
+	}
+
+	updated, err := s.app.Aliases.Update(name, in)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": updated})
+	return nil
+}
+
+func (s *Server) handleDeleteAlias(w http.ResponseWriter, r *http.Request, name string) error {
+	alias, err := s.app.Aliases.Remove(name)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": alias})
+	return nil
+}
+
+// Send Message Handler
+
+func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) error {
+	ct := r.Header.Get("Content-Type")
+	mediaType, _, _ := mime.ParseMediaType(ct)
+
+	var (
+		msgType  string
+		to       string
+		bot      string
+		threadID int
+		payload  map[string]any
+	)
+
+	if mediaType == "multipart/form-data" {
+		reader, err := r.MultipartReader()
+		if err != nil {
+			return apperr.New(apperr.Validation, "Failed to read multipart payload")
+		}
+		payload = map[string]any{}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			name := part.FormName()
+			if name == "" {
+				part.Close()
+				continue
+			}
+
+			if part.FileName() != "" {
+				data, err := io.ReadAll(part)
+				part.Close()
+				if err != nil {
+					return err
+				}
+				payload[name] = map[string]any{
+					"source":   "upload",
+					"file":     bytesUpload{filename: part.FileName(), data: data},
+					"filename": part.FileName(),
+				}
+				continue
+			}
+
+			bytes, err := io.ReadAll(part)
+			part.Close()
+			if err != nil {
+				return err
+			}
+			val := string(bytes)
+			switch name {
+			case "type":
+				msgType = val
+			case "to":
+				to = val
+			case "bot":
+				bot = val
+			case "messageThreadId", "threadId":
+				if val != "" {
+					threadID, _ = strconv.Atoi(val)
+				}
+			case "silent":
+				if val == "true" || val == "1" {
+					payload["disable_notification"] = true
+				}
+			case "parseMode", "parse_mode":
+				if val != "" {
+					payload["parse_mode"] = val
+				}
+			case "caption":
+				if val != "" {
+					payload["caption"] = val
+				}
+			case "data":
+				// Optional raw JSON fields to merge
+				if val != "" {
+					var extra map[string]any
+					if json.Unmarshal([]byte(val), &extra) == nil && extra != nil {
+						for k, v := range extra {
+							payload[k] = v
+						}
+					}
+				}
+			default:
+				payload[name] = val
+			}
+		}
+	} else {
+		var req struct {
+			Type     string         `json:"type"`
+			To       string         `json:"to"`
+			Bot      string         `json:"bot"`
+			ThreadID int            `json:"threadId"`
+			Silent   bool           `json:"silent"`
+			Payload  map[string]any `json:"payload"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return apperr.New(apperr.Validation, "Invalid request JSON")
+		}
+		msgType = req.Type
+		to = req.To
+		bot = req.Bot
+		threadID = req.ThreadID
+		payload = req.Payload
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		if req.Silent {
+			payload["disable_notification"] = true
+		}
+	}
+
+	if msgType == "" {
+		msgType = "text"
+	}
+	if to == "" {
+		return apperr.New(apperr.Validation, "Field \"to\" is required")
+	}
+
+	// Reject any client-provided filesystem paths
+	if err := rejectServerPaths(payload); err != nil {
+		return err
+	}
+
+	delivery, err := s.app.Send(r.Context(), app.SendRequest{
+		Type:     msgType,
+		To:       to,
+		Bot:      bot,
+		ThreadID: threadID,
+		Payload:  payload,
+	})
+	if err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"data": delivery})
+	return nil
+}
+
+func rejectServerPaths(v any) error {
+	switch val := v.(type) {
+	case map[string]any:
+		if src, ok := val["source"].(string); ok && src == "path" {
+			return apperr.New(apperr.Validation, "UI requests cannot use server filesystem paths")
+		}
+		for _, child := range val {
+			if err := rejectServerPaths(child); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range val {
+			if err := rejectServerPaths(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+type bytesUpload struct {
+	filename string
+	data     []byte
+}
+
+func (b bytesUpload) Open() (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(b.data)), nil
+}
+
+func (b bytesUpload) Name() string {
+	return b.filename
+}
+
+// Hash Utility Handler
+
+func (s *Server) handleHash(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		Type  string `json:"type"` // "key" or "password"
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apperr.New(apperr.Validation, "Invalid request body")
+	}
+	val := strings.TrimSpace(body.Value)
+	if val == "" {
+		return apperr.New(apperr.Validation, "Value to hash cannot be empty")
+	}
+
+	rawHash, err := secret.Hash(val)
+	if err != nil {
+		return err
+	}
+	encoded := secret.Encode(rawHash)
+
+	envKey := "TELESEND_API_KEY_HASH"
+	if body.Type == "password" {
+		envKey = "TELESEND_MCP_PASSWORD_HASH"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"hash":     encoded,
+		"envKey":   envKey,
+		"envLine":  fmt.Sprintf("%s=%s", envKey, encoded),
+	})
+	return nil
+}
+
+// Helpers
+
+func writeJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func writeError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	var appErr *apperr.Error
+	if errors.As(err, &appErr) {
+		status = appErr.HTTPStatus()
+	}
+	msg := apperr.Redact(err.Error())
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": msg})
+}

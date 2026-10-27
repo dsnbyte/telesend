@@ -303,3 +303,48 @@ func TestSendWithThreadSyntax(t *testing.T) {
 		t.Fatalf("expected no message_thread_id for private chat: %+v", lastCall.JSON)
 	}
 }
+
+func TestAppUpdateBot(t *testing.T) {
+	a, _ := testutil.NewApp(t)
+	ctx := context.Background()
+
+	// 1. Register bot
+	b, err := a.RegisterBot(ctx, "bot_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Username != "default_bot" {
+		t.Fatalf("initial username: %s", b.Username)
+	}
+
+	// 2. Update name only
+	updated, err := a.UpdateBot(ctx, "default_bot", store.BotInput{Name: "Custom Bot Name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "Custom Bot Name" {
+		t.Fatalf("updated name: %s", updated.Name)
+	}
+
+	// 3. Update with valid token
+	updatedToken, err := a.UpdateBot(ctx, "default_bot", store.BotInput{Token: "bot_token", Name: "Fresh Name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedToken.Name != "Fresh Name" {
+		t.Fatalf("updatedToken name: %s", updatedToken.Name)
+	}
+
+	// 4. Update with token for different bot fails
+	_, err = a.UpdateBot(ctx, "default_bot", store.BotInput{Token: "two_token"})
+	if err == nil {
+		t.Fatal("expected error updating token to a different bot ID")
+	}
+
+	// 5. Update non-existent bot fails
+	_, err = a.UpdateBot(ctx, "ghost_bot", store.BotInput{Name: "Ghost"})
+	if err == nil {
+		t.Fatal("expected error updating non-existent bot")
+	}
+}
+

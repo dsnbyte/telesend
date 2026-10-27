@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telesend</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <img src="/icon.png" alt="Telesend" class="brand-icon" width="20" height="20">
+        <span class="brand-title">telesend</span>
+        <span id="app-version" class="badge badge-subtle">v...</span>
+        <span class="status-indicator" title="Connected to Telesend Core">
+          <span class="status-dot"></span>
+        </span>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" id="theme-toggle" class="btn btn-icon" title="Toggle color theme" aria-label="Toggle color theme">
+          <svg class="icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+
+        <div class="menu-dropdown-container">
+          <button type="button" id="menu-btn" class="btn btn-icon" aria-haspopup="menu" aria-expanded="false" title="Account & Security" aria-label="Account & Security">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </button>
+          <div id="account-menu" class="dropdown-menu hidden" role="menu">
+            <button type="button" id="open-change-pw-btn" class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-1.5 1.5L14 9l-1.5-1.5L14 6l-2-2-4 4 1.5 1.5L8 11l-3 3v3h3l3-3 1.5 1.5 1.5-1.5-1.5-1.5 3.5-3.5z"/></svg>
+              Change Password
+            </button>
+            <div class="dropdown-divider"></div>
+            <button type="button" id="logout-btn" class="dropdown-item text-danger" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Log Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-segment" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true" class="nav-item active" data-tab="bots">
+        Bots <span id="tab-bot-count" class="tab-count">0</span>
+      </button>
+      <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="aliases">
+        Aliases <span id="tab-alias-count" class="tab-count">0</span>
+      </button>
+      <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="send">
+        Send
+      </button>
+      <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="server">
+        Server & MCP
+      </button>
+      <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="tools">
+        Tools
+      </button>
+    </nav>
+
+    <!-- Main Content Panels -->
+    <main class="main-content">
+      <!-- Alerts -->
+      <div id="global-alert" class="alert hidden" role="alert">
+        <span id="global-alert-text"></span>
+        <button type="button" class="alert-close" aria-label="Dismiss">&times;</button>
+      </div>
+
+      <!-- PANEL: BOTS -->
+      <section id="panel-bots" class="tab-panel active" role="tabpanel" aria-labelledby="tab-bots">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Registered Bots</h2>
+            <p class="section-sub">Telegram bots authorized for delivery</p>
+          </div>
+          <button type="button" id="toggle-add-bot-btn" class="btn btn-sm btn-primary">
+            + Add Bot
+          </button>
+        </div>
+
+        <!-- Add Bot Form (Collapsible) -->
+        <div id="add-bot-card" class="panel-card form-card hidden">
+          <div class="card-header">
+            <span class="card-title">Add Telegram Bot</span>
+            <button type="button" id="cancel-add-bot" class="btn-close" aria-label="Cancel">&times;</button>
+          </div>
+          <form id="form-add-bot" autocomplete="off">
+            <div class="form-group">
+              <label for="bot-token-input">Bot Token</label>
+              <div class="input-with-action">
+                <input type="password" id="bot-token-input" required spellcheck="false" placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz" autocomplete="off">
+                <button type="button" class="btn-toggle-mask" data-target="bot-token-input" aria-label="Toggle token visibility">show</button>
+              </div>
+              <p class="form-hint">Obtain a token from <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> on Telegram.</p>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary btn-sm">Verify & Add Bot</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Bot List -->
+        <div id="bot-list" class="item-list">
+          <!-- Populated by JS -->
+          <div class="empty-state">Loading bots...</div>
+        </div>
+      </section>
+
+      <!-- PANEL: ALIASES -->
+      <section id="panel-aliases" class="tab-panel" role="tabpanel" aria-labelledby="tab-aliases">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Recipient Aliases</h2>
+            <p class="section-sub">Named shortcuts for chat IDs and topics</p>
+          </div>
+          <button type="button" id="toggle-add-alias-btn" class="btn btn-sm btn-primary">
+            + Add Alias
+          </button>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="filter-bar">
+          <div class="filter-pills" role="radiogroup" aria-label="Alias Type Filter">
+            <button type="button" class="filter-pill active" data-filter="">All</button>
+            <button type="button" class="filter-pill" data-filter="group">Groups</button>
+            <button type="button" class="filter-pill" data-filter="private">Private</button>
+          </div>
+          <span id="alias-filter-count" class="text-muted text-xs">0 aliases</span>
+        </div>
+
+        <!-- Add Alias Form (Collapsible) -->
+        <div id="add-alias-card" class="panel-card form-card hidden">
+          <div class="card-header">
+            <span class="card-title">Add Recipient Alias</span>
+            <button type="button" id="cancel-add-alias" class="btn-close" aria-label="Cancel">&times;</button>
+          </div>
+          <form id="form-add-alias" autocomplete="off">
+            <div class="form-group">
+              <label for="alias-name-input">Alias Name</label>
+              <input type="text" id="alias-name-input" required spellcheck="false" placeholder="e.g. dev-alerts or alice">
+              <p class="form-hint">Letters, numbers, spaces, dot, dash, or underscore.</p>
+            </div>
+            <div class="form-group">
+              <label for="alias-chat-id-input">Chat ID</label>
+              <input type="text" id="alias-chat-id-input" required spellcheck="false" placeholder="e.g. -100123456789 or 12345678">
+              <p class="form-hint">Signed decimal integer (negative for groups/channels).</p>
+            </div>
+            <div class="form-group">
+              <label for="alias-thread-id-input">Thread ID <span class="text-muted font-normal">(optional forum topic)</span></label>
+              <input type="number" id="alias-thread-id-input" min="1" step="1" placeholder="e.g. 42">
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary btn-sm">Save Alias</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Alias List -->
+        <div id="alias-list" class="item-list">
+          <div class="empty-state">Loading aliases...</div>
+        </div>
+      </section>
+
+      <!-- PANEL: SEND MESSAGE -->
+      <section id="panel-send" class="tab-panel" role="tabpanel" aria-labelledby="tab-send">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Send Message</h2>
+            <p class="section-sub">Deliver messages directly via Telegram Bot API</p>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <form id="form-send-message">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="send-recipient-select">Recipient</label>
+                <select id="send-recipient-select" required>
+                  <option value="" disabled selected>Select alias or enter ID...</option>
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label for="send-bot-select">Bot</label>
+                <select id="send-bot-select">
+                  <option value="">Default bot</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Custom recipient input if "custom" selected -->
+            <div id="custom-recipient-group" class="form-group hidden">
+              <label for="send-custom-recipient">Custom Chat ID or Alias</label>
+              <input type="text" id="send-custom-recipient" placeholder="-100123456789#42 or chat_id">
+              <p class="form-hint">Append #thread_id for specific forum topics.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="send-type-select">Message Type</label>
+              <select id="send-type-select">
+                <option value="text">Text (sendMessage)</option>
+                <option value="photo">Photo (sendPhoto)</option>
+                <option value="document">Document (sendDocument)</option>
+                <option value="audio">Audio (sendAudio)</option>
+                <option value="video">Video (sendVideo)</option>
+                <option value="animation">Animation / GIF (sendAnimation)</option>
+                <option value="voice">Voice (sendVoice)</option>
+                <option value="location">Location (sendLocation)</option>
+                <option value="poll">Poll (sendPoll)</option>
+                <option value="dice">Animated Dice (sendDice)</option>
+                <option value="raw">Raw JSON Data (--data payload)</option>
+              </select>
+            </div>
+
+            <!-- TYPE: TEXT -->
+            <div id="type-section-text" class="type-section">
+              <div class="form-group">
+                <label for="send-text-content">Message Text</label>
+                <textarea id="send-text-content" rows="4" placeholder="Enter message text..."></textarea>
+              </div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="send-parse-mode">Parse Mode</label>
+                  <select id="send-parse-mode">
+                    <option value="">Plain Text</option>
+                    <option value="HTML">HTML</option>
+                    <option value="MarkdownV2">MarkdownV2</option>
+                  </select>
+                </div>
+                <div class="form-group flex-1 flex-center">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="send-silent">
+                    <span>Silent notification</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- TYPE: MEDIA (PHOTO, DOCUMENT, AUDIO, VIDEO, ANIMATION, VOICE) -->
+            <div id="type-section-media" class="type-section hidden">
+              <div class="form-group">
+                <label>Media Source</label>
+                <div class="segmented-control">
+                  <button type="button" class="segment-btn active" data-media-src="upload">File Upload</button>
+                  <button type="button" class="segment-btn" data-media-src="url">URL or File ID</button>
+                </div>
+              </div>
+
+              <div id="media-upload-group" class="form-group">
+                <label for="send-media-file">Choose File</label>
+                <input type="file" id="send-media-file" class="file-input">
+              </div>
+
+              <div id="media-url-group" class="form-group hidden">
+                <label for="send-media-url">HTTPS URL or Telegram File ID</label>
+                <input type="text" id="send-media-url" placeholder="https://example.com/file.jpg or file_id">
+              </div>
+
+              <div class="form-group">
+                <label for="send-media-caption">Caption <span class="text-muted font-normal">(optional)</span></label>
+                <input type="text" id="send-media-caption" placeholder="Media caption...">
+              </div>
+
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="send-media-silent">
+                  <span>Silent notification</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- TYPE: LOCATION -->
+            <div id="type-section-location" class="type-section hidden">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="send-lat">Latitude</label>
+                  <input type="number" id="send-lat" step="any" placeholder="e.g. -6.2088">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="send-lon">Longitude</label>
+                  <input type="number" id="send-lon" step="any" placeholder="e.g. 106.8456">
+                </div>
+              </div>
+            </div>
+
+            <!-- TYPE: POLL -->
+            <div id="type-section-poll" class="type-section hidden">
+              <div class="form-group">
+                <label for="send-poll-q">Poll Question</label>
+                <input type="text" id="send-poll-q" placeholder="What should we ship next?">
+              </div>
+              <div class="form-group">
+                <label for="send-poll-options">Options <span class="text-muted font-normal">(one per line)</span></label>
+                <textarea id="send-poll-options" rows="3" placeholder="Option 1&#10;Option 2&#10;Option 3"></textarea>
+              </div>
+            </div>
+
+            <!-- TYPE: DICE -->
+            <div id="type-section-dice" class="type-section hidden">
+              <div class="form-group">
+                <label for="send-dice-emoji">Dice Emoji</label>
+                <select id="send-dice-emoji">
+                  <option value="🎲">🎲 Die (1-6)</option>
+                  <option value="🎯">🎯 Dartboard (1-6)</option>
+                  <option value="🏀">🏀 Basketball (1-5)</option>
+                  <option value="⚽">⚽ Football (1-5)</option>
+                  <option value="🎰">🎰 Slot Machine (1-64)</option>
+                  <option value="🎳">🎳 Bowling (1-6)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- TYPE: RAW JSON DATA -->
+            <div id="type-section-raw" class="type-section hidden">
+              <div class="form-group">
+                <label for="send-raw-json">Payload JSON</label>
+                <textarea id="send-raw-json" rows="6" class="code-font" placeholder='{ "text": "Hello world" }'></textarea>
+                <p class="form-hint">Direct JSON payload matching Telegram Bot API parameters.</p>
+              </div>
+            </div>
+
+            <!-- Optional thread ID override -->
+            <div class="form-group">
+              <label for="send-thread-override">Thread ID <span class="text-muted font-normal">(optional override)</span></label>
+              <input type="number" id="send-thread-override" min="1" step="1" placeholder="Leave empty to use alias default">
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" id="btn-submit-send" class="btn btn-primary">
+                Send Message
+              </button>
+            </div>
+          </form>
+
+          <!-- Delivery Feedback Box -->
+          <div id="send-result-box" class="delivery-result hidden">
+            <!-- Populated by JS on send -->
+          </div>
+        </div>
+      </section>
+
+      <!-- PANEL: SERVER & MCP -->
+      <section id="panel-server" class="tab-panel" role="tabpanel" aria-labelledby="tab-server">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Server & MCP Status</h2>
+            <p class="section-sub">Runtime connectivity, endpoints, and tool interfaces</p>
+          </div>
+        </div>
+
+        <!-- Status Card -->
+        <div class="panel-card mb-4">
+          <div class="card-header">
+            <span class="card-title">Service Core</span>
+            <span class="badge badge-success">Online</span>
+          </div>
+          <div class="meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">Version</span>
+              <span id="srv-version" class="meta-val code-font">...</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Bot API Spec</span>
+              <span id="srv-bot-api" class="meta-val code-font">...</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Database</span>
+              <span id="srv-db-file" class="meta-val code-font">...</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Transport</span>
+              <span class="meta-val">HTTP / JSON-RPC</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Endpoints Card -->
+        <div class="panel-card mb-4">
+          <div class="card-header">
+            <span class="card-title">API Endpoints</span>
+          </div>
+          <div class="endpoint-list">
+            <div class="endpoint-row">
+              <span class="badge badge-get">GET</span>
+              <code class="endpoint-path">/health</code>
+              <span class="endpoint-desc">Health verification</span>
+            </div>
+            <div class="endpoint-row">
+              <span class="badge badge-get">GET</span>
+              <code class="endpoint-path">/bots</code>
+              <span class="endpoint-desc">List registered bots</span>
+            </div>
+            <div class="endpoint-row">
+              <span class="badge badge-post">POST</span>
+              <code class="endpoint-path">/bots</code>
+              <span class="endpoint-desc">Register bot by token</span>
+            </div>
+            <div class="endpoint-row">
+              <span class="badge badge-get">GET</span>
+              <code class="endpoint-path">/aliases</code>
+              <span class="endpoint-desc">List aliases</span>
+            </div>
+            <div class="endpoint-row">
+              <span class="badge badge-post">POST</span>
+              <code class="endpoint-path">/messages/{type}</code>
+              <span class="endpoint-desc">Deliver message</span>
+            </div>
+            <div class="endpoint-row">
+              <span class="badge badge-post">POST</span>
+              <code class="endpoint-path">/mcp</code>
+              <span class="endpoint-desc">Remote MCP JSON-RPC</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- MCP Config Snippet -->
+        <div class="panel-card mb-4">
+          <div class="card-header">
+            <span class="card-title">Stdio MCP Client Config</span>
+            <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="mcp-config-code">Copy</button>
+          </div>
+          <p class="text-sm text-muted mb-2">Add to Claude Desktop, Cursor, or Windsurf config:</p>
+          <pre class="code-block"><code id="mcp-config-code">{
+  "mcpServers": {
+    "telesend": {
+      "command": "telesend",
+      "args": ["mcp"]
+    }
+  }
+}</code></pre>
+        </div>
+
+        <!-- MCP Tools Catalog -->
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-title">Available MCP Tools</span>
+          </div>
+          <div id="mcp-tools-list" class="mcp-tools-container">
+            <div class="empty-state">Loading MCP tools...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PANEL: TOOLS -->
+      <section id="panel-tools" class="tab-panel" role="tabpanel" aria-labelledby="tab-tools">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">CLI Utilities & Reference</h2>
+            <p class="section-sub">Security hash generation and CLI command quick-reference</p>
+          </div>
+        </div>
+
+        <!-- Hash Key Tool -->
+        <div class="panel-card mb-4">
+          <div class="card-header">
+            <span class="card-title">Hash API Key</span>
+            <span class="badge badge-subtle">telesend hash-key</span>
+          </div>
+          <p class="text-sm text-muted mb-3">Derive a secure PBKDF2 hash for <code class="code-font">TELESEND_API_KEY_HASH</code>.</p>
+          <form id="form-hash-key">
+            <div class="form-group">
+              <label for="input-api-key">Plaintext API Key</label>
+              <input type="password" id="input-api-key" placeholder="Enter secret API key..." required autocomplete="off">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Generate Key Hash</button>
+          </form>
+          <div id="hash-key-output" class="output-box hidden">
+            <div class="output-label">Environment Variable Line:</div>
+            <div class="output-row">
+              <code id="hash-key-text" class="code-font text-xs"></code>
+              <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="hash-key-text">Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hash Password Tool -->
+        <div class="panel-card mb-4">
+          <div class="card-header">
+            <span class="card-title">Hash MCP Owner Password</span>
+            <span class="badge badge-subtle">telesend hash-password</span>
+          </div>
+          <p class="text-sm text-muted mb-3">Derive a secure PBKDF2 hash for <code class="code-font">TELESEND_MCP_PASSWORD_HASH</code>.</p>
+          <form id="form-hash-password">
+            <div class="form-group">
+              <label for="input-mcp-password">Owner Password</label>
+              <input type="password" id="input-mcp-password" placeholder="Enter owner password..." required autocomplete="off">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Generate Password Hash</button>
+          </form>
+          <div id="hash-password-output" class="output-box hidden">
+            <div class="output-label">Environment Variable Line:</div>
+            <div class="output-row">
+              <code id="hash-password-text" class="code-font text-xs"></code>
+              <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="hash-password-text">Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- CLI Command Cheatsheet -->
+        <div class="panel-card">
+          <div class="card-header">
+            <span class="card-title">CLI Commands Cheat Sheet</span>
+          </div>
+          <div class="cheatsheet">
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend bot list</span>
+              <span class="cheat-desc">List registered bots</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend bot add</span>
+              <span class="cheat-desc">Register bot by prompt</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend bot default &lt;bot&gt;</span>
+              <span class="cheat-desc">Set active default bot</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend bot update &lt;bot&gt; --name &lt;name&gt;</span>
+              <span class="cheat-desc">Update bot display name</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend bot remove &lt;bot&gt;</span>
+              <span class="cheat-desc">Remove bot registration</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend alias add &lt;name&gt; &lt;chat-id&gt;</span>
+              <span class="cheat-desc">Add recipient shortcut</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend alias list [group|private]</span>
+              <span class="cheat-desc">List aliases with filter</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend msg text &lt;alias&gt; "Hello"</span>
+              <span class="cheat-desc">Send message to recipient</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend serve [--port 3100]</span>
+              <span class="cheat-desc">Start server and Web UI</span>
+            </div>
+            <div class="cheat-item">
+              <span class="cheat-cmd">telesend mcp</span>
+              <span class="cheat-desc">Run stdio MCP server</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>Telesend self-hosted Telegram gateway</span>
+    </footer>
+  </div>
+
+  <!-- MODAL: INITIAL PASSWORD SETUP -->
+  <dialog id="modal-setup" class="app-modal" aria-labelledby="setup-title" closedby="none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="brand">
+          <img src="/icon.png" alt="Telesend" width="22" height="22">
+          <h2 id="setup-title" class="modal-title">Welcome to Telesend</h2>
+        </div>
+      </div>
+      <p class="modal-desc">
+        Set up a master password to protect this web interface. The password is encrypted and stored safely in the database.
+      </p>
+      <form id="form-setup-pw">
+        <div class="form-group">
+          <label for="setup-pw">Master Password</label>
+          <input type="password" id="setup-pw" required autocomplete="new-password" spellcheck="false" placeholder="Create a secure password">
+        </div>
+        <div class="form-group">
+          <label for="setup-pw-confirm">Confirm Password</label>
+          <input type="password" id="setup-pw-confirm" required autocomplete="new-password" spellcheck="false" placeholder="Re-enter password">
+        </div>
+        <div id="setup-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary w-full">Set Password & Continue</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: LOGIN -->
+  <dialog id="modal-login" class="app-modal" aria-labelledby="login-title" closedby="none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="brand">
+          <img src="/icon.png" alt="Telesend" width="22" height="22">
+          <h2 id="login-title" class="modal-title">Telesend Login</h2>
+        </div>
+      </div>
+      <p class="modal-desc">Enter your master password to access Telesend.</p>
+      <form id="form-login">
+        <div class="form-group">
+          <label for="login-pw">Master Password</label>
+          <div class="input-with-action">
+            <input type="password" id="login-pw" required autocomplete="current-password" spellcheck="false" placeholder="Enter password" autofocus>
+            <button type="button" class="btn-toggle-mask" data-target="login-pw" aria-label="Toggle password visibility">show</button>
+          </div>
+        </div>
+        <div id="login-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary w-full">Unlock Interface</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: CHANGE PASSWORD -->
+  <dialog id="modal-change-pw" class="app-modal" aria-labelledby="change-pw-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="change-pw-title" class="modal-title">Change Master Password</h2>
+        <button type="button" class="btn-close" id="close-change-pw" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-change-pw">
+        <div class="form-group">
+          <label for="current-pw">Current Password</label>
+          <input type="password" id="current-pw" required autocomplete="current-password" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label for="new-pw">New Password</label>
+          <input type="password" id="new-pw" required autocomplete="new-password" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label for="new-pw-confirm">Confirm New Password</label>
+          <input type="password" id="new-pw-confirm" required autocomplete="new-password" spellcheck="false">
+        </div>
+        <div id="change-pw-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-change-pw">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update Password</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: EDIT BOT -->
+  <dialog id="modal-edit-bot" class="app-modal" aria-labelledby="edit-bot-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="edit-bot-title" class="modal-title">Edit Bot</h2>
+        <button type="button" class="btn-close" id="close-edit-bot" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-edit-bot">
+        <input type="hidden" id="edit-bot-username">
+        <div class="form-group">
+          <label>Username</label>
+          <div id="edit-bot-username-display" class="static-val code-font"></div>
+        </div>
+        <div class="form-group">
+          <label for="edit-bot-name">Display Name</label>
+          <input type="text" id="edit-bot-name" required spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label for="edit-bot-token">Update Token <span class="text-muted font-normal">(leave blank to keep current)</span></label>
+          <div class="input-with-action">
+            <input type="password" id="edit-bot-token" spellcheck="false" placeholder="New token from @BotFather" autocomplete="off">
+            <button type="button" class="btn-toggle-mask" data-target="edit-bot-token" aria-label="Toggle token visibility">show</button>
+          </div>
+        </div>
+        <div id="edit-bot-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-edit-bot">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: EDIT ALIAS -->
+  <dialog id="modal-edit-alias" class="app-modal" aria-labelledby="edit-alias-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="edit-alias-title" class="modal-title">Edit Alias</h2>
+        <button type="button" class="btn-close" id="close-edit-alias" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-edit-alias">
+        <input type="hidden" id="edit-alias-old-name">
+        <div class="form-group">
+          <label for="edit-alias-name">Alias Name</label>
+          <input type="text" id="edit-alias-name" required spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label for="edit-alias-chat-id">Chat ID</label>
+          <input type="text" id="edit-alias-chat-id" required spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label for="edit-alias-thread-id">Thread ID <span class="text-muted font-normal">(optional forum topic)</span></label>
+          <input type="number" id="edit-alias-thread-id" min="1" step="1" placeholder="Empty for none">
+        </div>
+        <div id="edit-alias-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-edit-alias">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

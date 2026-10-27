@@ -23,6 +23,7 @@ import (
 	"github.com/dsnbyte/telesend/internal/secret"
 	"github.com/dsnbyte/telesend/internal/store"
 	"github.com/dsnbyte/telesend/internal/telegram"
+	"github.com/dsnbyte/telesend/internal/ui"
 	"github.com/dsnbyte/telesend/internal/version"
 	"golang.org/x/term"
 )
@@ -73,6 +74,8 @@ func dispatch(ctx context.Context, args []string, a *app.App, ioStreams IO, json
 		return runAlias(args[1:], a, ioStreams, jsonMode)
 	case "msg", "message":
 		return runMsg(ctx, args[1:], a, ioStreams, jsonMode)
+	case "ui", "web":
+		return runUI(ctx, args[1:], a, ioStreams)
 	case "serve":
 		return runServe(ctx, args[1:], a, ioStreams)
 	case "mcp":
@@ -155,6 +158,29 @@ func runBot(ctx context.Context, args []string, a *app.App, ioStreams IO, jsonMo
 			fmt.Fprintln(ioStreams.Out, string(jsonx.MarshalIndent(bot)))
 		} else {
 			fmt.Fprintf(ioStreams.Out, "Removed bot @%s\nName         %s\nTelegram ID  %s\nDefault      %s\n",
+				bot.Username, bot.Name, bot.TelegramID, yesNo(bot.IsDefault))
+		}
+		return nil
+	case "update", "edit":
+		if len(args) < 2 || args[1] == "" {
+			return apperr.New(apperr.Validation, "Bot username is required")
+		}
+		opts, _, err := parseOptions(args[2:])
+		if err != nil {
+			return err
+		}
+		name := opts["name"]
+		if name == "" {
+			return apperr.New(apperr.Validation, "--name is required to update bot")
+		}
+		bot, err := a.UpdateBot(ctx, args[1], store.BotInput{Name: name})
+		if err != nil {
+			return err
+		}
+		if jsonMode {
+			fmt.Fprintln(ioStreams.Out, string(jsonx.MarshalIndent(bot)))
+		} else {
+			fmt.Fprintf(ioStreams.Out, "Updated bot @%s\nName         %s\nTelegram ID  %s\nDefault      %s\n",
 				bot.Username, bot.Name, bot.TelegramID, yesNo(bot.IsDefault))
 		}
 		return nil
@@ -462,6 +488,7 @@ func parseMediaArg(val string) map[string]any {
 func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
 	noMCP := false
 	noREST := false
+	noUI := false
 	var filtered []string
 	for _, arg := range args {
 		switch arg {
@@ -469,6 +496,8 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 			noMCP = true
 		case "--no-rest", "--no-api":
 			noREST = true
+		case "--no-ui":
+			noUI = true
 		default:
 			filtered = append(filtered, arg)
 		}
@@ -535,6 +564,11 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 		mcpURL = &u
 	}
 
+	var uiHandler http.Handler
+	if !noUI {
+		uiHandler = ui.NewServer(a)
+	}
+
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -553,7 +587,50 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 		fmt.Fprintf(ioStreams.Out, "Telesend remote MCP listening on http://%s/ (public %s)\n", boundHostPort, mcpURL.String())
 	}
 
-	server := &http.Server{Handler: combinedServerHandler{rest: restHandler, mcp: mcpHandler}}
+	server := &http.Server{Handler: combinedServerHandler{rest: restHandler, mcp: mcpHandler, ui: uiHandler}}
+	go func() {
+		<-ctx.Done()
+		server.Close()
+	}()
+	err = server.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+func runUI(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
+	opts, positionals, err := parseOptions(args)
+	if err != nil {
+		return err
+	}
+	if len(positionals) > 0 {
+		return apperr.Newf(apperr.Validation, "Unexpected argument: %s", positionals[0])
+	}
+	host := "127.0.0.1"
+	if h, ok := opts["host"]; ok && h != "" {
+		host = h
+	}
+	port := 3100
+	if p, ok := opts["port"]; ok {
+		port, err = strconv.Atoi(p)
+		if err != nil || port <= 0 {
+			return apperr.New(apperr.Validation, "--port must be a positive integer")
+		}
+	}
+
+	uiHandler := ui.NewServer(a)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	boundHostPort := net.JoinHostPort(host, portStr)
+
+	fmt.Fprintf(ioStreams.Out, "Telesend UI listening on http://%s/\n", boundHostPort)
+
+	server := &http.Server{Handler: uiHandler}
 	go func() {
 		<-ctx.Done()
 		server.Close()
@@ -568,6 +645,7 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 type combinedServerHandler struct {
 	rest http.Handler
 	mcp  http.Handler
+	ui   http.Handler
 }
 
 func (h combinedServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -591,15 +669,35 @@ func (h combinedServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		h.rest.ServeHTTP(w, r)
 		return
 	}
-	if h.rest != nil && h.mcp == nil {
+	if isUIPath(r.URL.Path) {
+		if h.ui != nil {
+			h.ui.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
+	if h.rest != nil && h.mcp == nil && h.ui == nil {
 		h.rest.ServeHTTP(w, r)
 		return
 	}
-	if h.mcp != nil && h.rest == nil {
+	if h.mcp != nil && h.rest == nil && h.ui == nil {
 		h.mcp.ServeHTTP(w, r)
 		return
 	}
+	if h.ui != nil {
+		h.ui.ServeHTTP(w, r)
+		return
+	}
 	http.NotFound(w, r)
+}
+
+func isUIPath(p string) bool {
+	switch p {
+	case "/", "/ui", "/ui/", "/app.css", "/app.js", "/ui/app.css", "/ui/app.js":
+		return true
+	}
+	return strings.HasPrefix(p, "/api/ui/") || strings.HasPrefix(p, "/ui/")
 }
 
 func isMCPPath(p string) bool {
@@ -861,12 +959,13 @@ func Help() string {
 	return fmt.Sprintf(`Telesend %s
 
 Usage:
-  telesend [--json] bot add|list|default|remove
+  telesend [--json] bot add|list|default|remove|update
   telesend [--json] alias add <name> <chat-id> [--thread-id <id>]
   telesend [--json] alias list [group|private]
   telesend [--json] alias update|remove
   telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
-  telesend serve [--host <host>] [--port <port>] [--no-mcp] [--no-rest]
+  telesend ui [--host <host>] [--port <port>]
+  telesend serve [--host <host>] [--port <port>] [--no-mcp] [--no-rest] [--no-ui]
   telesend mcp [--config <path>] [--allow-path <path> ...]
   telesend hash-key
   telesend hash-password

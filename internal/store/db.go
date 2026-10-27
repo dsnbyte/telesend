@@ -82,6 +82,21 @@ var migrations = []string{
     );
     CREATE INDEX oauth_refresh_tokens_expiry ON oauth_refresh_tokens(expires_at);
   `,
+	`
+    CREATE TABLE ui_auth (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE ui_sessions (
+      token TEXT PRIMARY KEY,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX ui_sessions_expiry ON ui_sessions(expires_at);
+  `,
 }
 
 // Open opens (creating if needed) the database at path. Use ":memory:" for an

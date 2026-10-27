@@ -454,3 +454,69 @@ func TestCLIServerOptions(t *testing.T) {
 		t.Fatalf("expected default port 3100 in output: %q", rrDef.out)
 	}
 }
+
+func TestCLIBotUpdate(t *testing.T) {
+	env := setupCLI(t)
+	ctx := context.Background()
+
+	// 1. Add bot
+	_, _, code := run(ctx, env.tg, env.wrapper, []string{"bot", "add"}, "bot_token\n")
+	if code != 0 {
+		t.Fatal("failed to add bot")
+	}
+
+	// 2. Update bot name
+	out, _, code := run(ctx, env.tg, env.wrapper, []string{"bot", "update", "default_bot", "--name", "New Display Name"}, "")
+	if code != 0 || !strings.Contains(out, "Updated bot @default_bot") || !strings.Contains(out, "New Display Name") {
+		t.Fatalf("update bot failed: %d %q", code, out)
+	}
+
+	// 3. Update without name fails
+	_, errOut, code := run(ctx, env.tg, env.wrapper, []string{"bot", "update", "default_bot"}, "")
+	if code != 1 || !strings.Contains(errOut, "--name is required") {
+		t.Fatalf("expected error without name: %d %q", code, errOut)
+	}
+}
+
+func TestCLIUICommand(t *testing.T) {
+	env := setupCLI(t)
+	portUI := freePort(t)
+	ctxUI, cancelUI := context.WithCancel(context.Background())
+	defer cancelUI()
+
+	type runResult struct {
+		out  string
+		err  string
+		code int
+	}
+	resChUI := make(chan runResult, 1)
+	go func() {
+		out, errS, c := run(ctxUI, env.tg, env.wrapper, []string{"ui", "--port", portUI}, "")
+		resChUI <- runResult{out, errS, c}
+	}()
+
+	if !waitServerReady("http://127.0.0.1:"+portUI+"/", 2*time.Second) {
+		t.Fatalf("UI server did not become ready on port %s", portUI)
+	}
+
+	// Fetch index
+	res, err := http.Get("http://127.0.0.1:" + portUI + "/")
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("expected 200 for UI root: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
+	// Fetch API status
+	res, err = http.Get("http://127.0.0.1:" + portUI + "/api/ui/auth/status")
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("expected 200 for UI auth status: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
+	cancelUI()
+	rrUI := <-resChUI
+	if !strings.Contains(rrUI.out, "Telesend UI listening on http://127.0.0.1:"+portUI+"/") {
+		t.Fatalf("expected UI startup output: %q", rrUI.out)
+	}
+}
+

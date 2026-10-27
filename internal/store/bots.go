@@ -146,6 +146,45 @@ func (r *Bots) SetDefault(username string) (Bot, error) {
 	return out, err
 }
 
+// BotInput represents writable properties when editing a bot.
+type BotInput struct {
+	Name  string
+	Token string
+}
+
+// Update changes an existing bot's name and/or token.
+func (r *Bots) Update(username string, in BotInput) (Bot, error) {
+	var out Bot
+	err := inTx(r.db, func(tx *sql.Tx) error {
+		bot, err := requireBot(tx, username)
+		if err != nil {
+			return err
+		}
+		name := strings.TrimSpace(in.Name)
+		if name == "" {
+			name = bot.Name
+		}
+		token := strings.TrimSpace(in.Token)
+		if token == "" {
+			token = bot.Token
+		}
+		ts := now()
+		if _, err := tx.Exec(
+			"UPDATE bots SET name = ?, token = ?, updated_at = ? WHERE username = ? COLLATE NOCASE",
+			name, token, ts, bot.Username,
+		); err != nil {
+			return err
+		}
+		stored, err := requireBot(tx, bot.Username)
+		if err != nil {
+			return err
+		}
+		out = stored.Bot
+		return nil
+	})
+	return out, err
+}
+
 // Remove deletes a bot. The default cannot be removed while others remain.
 func (r *Bots) Remove(username string) (Bot, error) {
 	var out Bot

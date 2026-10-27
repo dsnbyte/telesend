@@ -22,6 +22,7 @@ type App struct {
 	Aliases      *store.Aliases
 	Bots         *store.Bots
 	OAuth        *store.OAuth
+	UIAuth       *store.UIAuth
 	Telegram     *telegram.Client
 }
 
@@ -38,6 +39,7 @@ func New(path string, client *telegram.Client) (*App, error) {
 	return &App{
 		DB: db, DatabasePath: path,
 		Aliases: store.NewAliases(db), Bots: store.NewBots(db), OAuth: store.NewOAuth(db),
+		UIAuth: store.NewUIAuth(db),
 		Telegram: client,
 	}, nil
 }
@@ -64,6 +66,36 @@ func (a *App) RegisterBot(ctx context.Context, token string) (store.Bot, error) 
 		Username:   user.Username,
 		Token:      token,
 	})
+}
+
+// UpdateBot updates the name and/or token of an existing bot.
+// If a new token is supplied, it is verified against Telegram and must match the bot's Telegram ID.
+func (a *App) UpdateBot(ctx context.Context, username string, in store.BotInput) (store.Bot, error) {
+	existing, err := a.Bots.Find(username)
+	if err != nil {
+		return store.Bot{}, err
+	}
+	if existing == nil {
+		return store.Bot{}, apperr.Newf(apperr.NotFound, "Bot @%s was not found", strings.TrimPrefix(username, "@"))
+	}
+	name := strings.TrimSpace(in.Name)
+	token := strings.TrimSpace(in.Token)
+	if token != "" {
+		user, err := a.Telegram.GetMe(ctx, token)
+		if err != nil {
+			return store.Bot{}, err
+		}
+		if !user.IsBot || user.Username == "" {
+			return store.Bot{}, apperr.New(apperr.Validation, "Telegram token did not resolve to a bot with a username")
+		}
+		if formatID(user.ID) != existing.TelegramID {
+			return store.Bot{}, apperr.New(apperr.Validation, "Token belongs to a different Telegram bot ID")
+		}
+		if name == "" {
+			name = strings.TrimSpace(user.FirstName + " " + user.LastName)
+		}
+	}
+	return a.Bots.Update(username, store.BotInput{Name: name, Token: token})
 }
 
 // ResolveBot returns the named bot, or the default bot when username is empty.
