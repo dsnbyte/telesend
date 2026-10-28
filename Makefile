@@ -4,7 +4,7 @@ all: build
 
 build:
 	mkdir -p dist
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/telesend ./cmd/telesend
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/telesend ./cmd/telesend
 
 test:
 	go test -v ./...

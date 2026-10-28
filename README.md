@@ -379,16 +379,19 @@ curl -X POST http://127.0.0.1:3100/messages/photo \
 
 ## Data Storage
 
-| | Path |
+By default, Telesend stores its database and configuration in a `data/` folder next to the executable (similar to PocketBase):
+
+| Component | Path |
 | --- | --- |
-| **Linux** | `~/.local/share/telesend/telesend.db` |
-| **macOS** | `~/Library/Application Support/telesend/` |
-| **MCP config** | `~/.config/telesend/config.json` (Linux) |
+| **Database** | `<binary_dir>/data/telesend.db` |
+| **Config** | `<binary_dir>/data/config.json` (or `<binary_dir>/config.json`) |
+
+Set `TELESEND_DATA_DIR` in your environment to override the data folder location.
 
 Back up a running database safely:
 
 ```sh
-sqlite3 telesend.db ".backup telesend-backup.db"
+sqlite3 data/telesend.db ".backup data/telesend-backup.db"
 ```
 
 ## Development

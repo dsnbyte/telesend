@@ -31,6 +31,46 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+func TestForDir(t *testing.T) {
+	p := ForDir("/custom/data")
+	if p.DataDir != "/custom/data" {
+		t.Errorf("expected DataDir /custom/data, got %s", p.DataDir)
+	}
+	if p.DatabaseFile != "/custom/data/telesend.db" {
+		t.Errorf("expected DatabaseFile /custom/data/telesend.db, got %s", p.DatabaseFile)
+	}
+	if p.ConfigFile != "/custom/data/config.json" {
+		t.Errorf("expected ConfigFile /custom/data/config.json, got %s", p.ConfigFile)
+	}
+}
+
+func TestDefault(t *testing.T) {
+	// Normal default
+	p, err := Default()
+	if err != nil {
+		t.Fatalf("Default failed: %v", err)
+	}
+	if !filepath.IsAbs(p.DatabaseFile) {
+		t.Errorf("DatabaseFile should be absolute, got %s", p.DatabaseFile)
+	}
+	if filepath.Base(p.DatabaseFile) != "telesend.db" {
+		t.Errorf("expected telesend.db filename, got %s", filepath.Base(p.DatabaseFile))
+	}
+	if filepath.Base(filepath.Dir(p.DatabaseFile)) != "data" {
+		t.Errorf("expected parent dir 'data', got %s", filepath.Base(filepath.Dir(p.DatabaseFile)))
+	}
+
+	// Override with TELESEND_DATA_DIR
+	t.Setenv("TELESEND_DATA_DIR", "/override/path")
+	p2, err := Default()
+	if err != nil {
+		t.Fatalf("Default with env failed: %v", err)
+	}
+	if p2.DataDir != "/override/path" || p2.DatabaseFile != "/override/path/telesend.db" {
+		t.Errorf("unexpected paths with env override: %+v", p2)
+	}
+}
+
 func TestEnsurePrivateDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip()

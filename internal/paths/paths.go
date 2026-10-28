@@ -50,8 +50,49 @@ func Resolve(getenv func(string) string, goos string) (Paths, error) {
 	}, nil
 }
 
+// ExecutableDir returns the directory containing the running executable.
+// If the executable is a symlink, it resolves the symlink to the real target directory.
+func ExecutableDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	realPath, err := filepath.EvalSymlinks(exe)
+	if err == nil {
+		exe = realPath
+	}
+	return filepath.Dir(exe), nil
+}
+
+// ForDir computes Paths given a data directory.
+func ForDir(dataDir string) Paths {
+	return Paths{
+		ConfigDir:    dataDir,
+		ConfigFile:   filepath.Join(dataDir, "config.json"),
+		DataDir:      dataDir,
+		DatabaseFile: filepath.Join(dataDir, "telesend.db"),
+	}
+}
+
 // Default resolves paths for the current process.
-func Default() (Paths, error) { return Resolve(os.Getenv, runtime.GOOS) }
+// By default, it places the data directory in the "data" folder alongside
+// the executable (similar to PocketBase).
+// TELESEND_DATA_DIR can be set to override this location.
+func Default() (Paths, error) {
+	if envDir := os.Getenv("TELESEND_DATA_DIR"); envDir != "" {
+		return ForDir(envDir), nil
+	}
+	exeDir, err := ExecutableDir()
+	if err != nil {
+		exeDir = "."
+	}
+	dataDir := filepath.Join(exeDir, "data")
+	p := ForDir(dataDir)
+	if _, err := os.Stat(filepath.Join(exeDir, "config.json")); err == nil {
+		p.ConfigFile = filepath.Join(exeDir, "config.json")
+	}
+	return p, nil
+}
 
 // EnsurePrivateDir creates path with mode 0700.
 func EnsurePrivateDir(path string) error {
