@@ -38,6 +38,8 @@ type Server struct {
 	app             *app.App
 	verifier        *secret.Verifier
 	historyPageSize int
+	restActive      bool
+	mcpActive       bool
 }
 
 func loadHistoryPageSize() int {
@@ -86,7 +88,15 @@ func NewServer(a *app.App, verifier *secret.Verifier) (*Server, error) {
 		app:             a,
 		verifier:        verifier,
 		historyPageSize: loadHistoryPageSize(),
+		restActive:      true,
+		mcpActive:       true,
 	}, nil
+}
+
+// SetServiceStatus updates the reported active status for REST and MCP services.
+func (s *Server) SetServiceStatus(restActive, mcpActive bool) {
+	s.restActive = restActive
+	s.mcpActive = mcpActive
 }
 
 // SetHistoryPageSize overrides the pagination size.
@@ -190,6 +200,14 @@ func (s *Server) routeAPI(w http.ResponseWriter, r *http.Request, path string) e
 	// Hash tool
 	if path == "/hash" && r.Method == http.MethodPost {
 		return s.handleHash(w, r)
+	}
+
+	// Database export / import
+	if path == "/db/export" && r.Method == http.MethodGet {
+		return s.handleDBExport(w, r)
+	}
+	if path == "/db/import" && r.Method == http.MethodPost {
+		return s.handleDBImport(w, r)
 	}
 
 	// Bots
@@ -407,6 +425,8 @@ func (s *Server) handleServerInfo(w http.ResponseWriter, r *http.Request) error 
 		"version":        version.Version,
 		"botApiVersion":  telegram.BotAPIVersion,
 		"databaseFile":   filepath.Base(s.app.DatabasePath),
+		"restActive":     s.restActive,
+		"mcpActive":      s.mcpActive,
 		"catalog":        catalog,
 		"mcpTools":       mcpTools,
 	})
@@ -855,6 +875,91 @@ func (s *Server) handleHash(w http.ResponseWriter, r *http.Request) error {
 		"hash":     encoded,
 		"envKey":   envKey,
 		"envLine":  fmt.Sprintf("%s=%s", envKey, encoded),
+		"envLines": map[string]string{
+			"apiKey": fmt.Sprintf("TELESEND_API_KEY_HASH=%s", encoded),
+			"mcp":    fmt.Sprintf("TELESEND_MCP_PASSWORD_HASH=%s", encoded),
+			"ui":     fmt.Sprintf("TELESEND_UI_PASSWORD_HASH=%s", encoded),
+		},
+	})
+	return nil
+}
+
+// Database Export & Import Handlers
+
+func (s *Server) handleDBExport(w http.ResponseWriter, r *http.Request) error {
+	sqlDump, err := s.app.ExportDatabase()
+	if err != nil {
+		return err
+	}
+	if r.URL.Query().Get("download") == "true" || r.URL.Query().Get("download") == "1" {
+		filename := fmt.Sprintf("telesend-backup-%s.sql", time.Now().UTC().Format("2006-01-02-150405"))
+		w.Header().Set("Content-Type", "application/sql; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+		_, _ = w.Write([]byte(sqlDump))
+		return nil
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sql":  sqlDump,
+		"size": len(sqlDump),
+	})
+	return nil
+}
+
+func (s *Server) handleDBImport(w http.ResponseWriter, r *http.Request) error {
+	var script string
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			script = r.FormValue("sql")
+			if strings.TrimSpace(script) == "" {
+				return apperr.New(apperr.Validation, "No SQL file or script provided")
+			}
+		} else {
+			defer file.Close()
+			data, err := io.ReadAll(file)
+			if err != nil {
+				return apperr.New(apperr.Validation, "Failed to read uploaded SQL file")
+			}
+			script = string(data)
+		}
+	} else if strings.HasPrefix(ct, "application/json") {
+		var body struct {
+			SQL string `json:"sql"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return apperr.New(apperr.Validation, "Invalid request body")
+		}
+		script = body.SQL
+	} else {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			return apperr.New(apperr.Validation, "Failed to read request body")
+		}
+		script = string(data)
+	}
+
+	script = strings.TrimSpace(script)
+	if script == "" {
+		return apperr.New(apperr.Validation, "SQL script cannot be empty")
+	}
+
+	currentSession := s.getSessionToken(r)
+
+	if err := s.app.ImportDatabase(script); err != nil {
+		return apperr.New(apperr.Validation, fmt.Sprintf("Import error: %v", err))
+	}
+
+	if currentSession != "" {
+		valid, _ := s.app.UIAuth.ValidateSession(currentSession)
+		if !valid {
+			_ = s.app.UIAuth.CreateSession(currentSession, sessionDuration)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "Database imported successfully. All data was replaced.",
 	})
 	return nil
 }

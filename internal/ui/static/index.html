@@ -21,16 +21,24 @@
       </div>
 
       <div class="header-actions">
+        <a href="https://github.com/dsnbyte/telesend" target="_blank" rel="noopener noreferrer" class="btn btn-icon" title="GitHub Repository" aria-label="GitHub Repository">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        </a>
+
         <button type="button" id="theme-toggle" class="btn btn-icon" title="Toggle color theme" aria-label="Toggle color theme">
           <svg class="icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
 
         <div class="menu-dropdown-container">
-          <button type="button" id="menu-btn" class="btn btn-icon" aria-haspopup="menu" aria-expanded="false" title="Account & Security" aria-label="Account & Security">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <button type="button" id="menu-btn" class="btn btn-icon" aria-haspopup="menu" aria-expanded="false" title="System Menu" aria-label="System Menu">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </button>
           <div id="account-menu" class="dropdown-menu hidden" role="menu">
+            <button type="button" id="server-status-btn" class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              Server Status
+            </button>
             <button type="button" id="logout-btn" class="dropdown-item text-danger" role="menuitem">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               Log Out
@@ -54,11 +62,8 @@
       <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="history">
         History <span id="tab-history-count" class="tab-count">0</span>
       </button>
-      <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="server">
-        Server & MCP
-      </button>
       <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="tools">
-        Tools
+        Tools &amp; Utilities
       </button>
     </nav>
 
@@ -339,234 +344,167 @@
         </div>
       </section>
 
-      <!-- PANEL: SERVER & MCP -->
-      <section id="panel-server" class="tab-panel" role="tabpanel" aria-labelledby="tab-server">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">Server & MCP Status</h2>
-          </div>
-        </div>
-
-        <!-- Status Card -->
-        <div class="panel-card mb-4">
-          <div class="card-header">
-            <span class="card-title">Service Core</span>
-            <span class="badge badge-success">Online</span>
-          </div>
-          <div class="meta-grid">
-            <div class="meta-item">
-              <span class="meta-label">Version</span>
-              <span id="srv-version" class="meta-val code-font">...</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Bot API Spec</span>
-              <span id="srv-bot-api" class="meta-val code-font">...</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Database</span>
-              <span id="srv-db-file" class="meta-val code-font">...</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Transport</span>
-              <span class="meta-val">HTTP / JSON-RPC</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Endpoints Card -->
-        <div class="panel-card mb-4">
-          <div class="card-header">
-            <span class="card-title">API Endpoints</span>
-          </div>
-          <div class="endpoint-list">
-            <div class="endpoint-row">
-              <span class="badge badge-get">GET</span>
-              <code class="endpoint-path">/health</code>
-              <span class="endpoint-desc">Health verification</span>
-            </div>
-            <div class="endpoint-row">
-              <span class="badge badge-get">GET</span>
-              <code class="endpoint-path">/bots</code>
-              <span class="endpoint-desc">List registered bots</span>
-            </div>
-            <div class="endpoint-row">
-              <span class="badge badge-post">POST</span>
-              <code class="endpoint-path">/bots</code>
-              <span class="endpoint-desc">Register bot by token</span>
-            </div>
-            <div class="endpoint-row">
-              <span class="badge badge-get">GET</span>
-              <code class="endpoint-path">/aliases</code>
-              <span class="endpoint-desc">List aliases</span>
-            </div>
-            <div class="endpoint-row">
-              <span class="badge badge-post">POST</span>
-              <code class="endpoint-path">/messages/{type}</code>
-              <span class="endpoint-desc">Deliver message</span>
-            </div>
-            <div class="endpoint-row">
-              <span class="badge badge-post">POST</span>
-              <code class="endpoint-path">/mcp</code>
-              <span class="endpoint-desc">Remote MCP JSON-RPC</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- MCP Config Snippet -->
-        <div class="panel-card mb-4">
-          <div class="card-header">
-            <span class="card-title">Stdio MCP Client Config</span>
-            <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="mcp-config-code">Copy</button>
-          </div>
-          <p class="text-sm text-muted mb-2">Add to Claude Desktop, Cursor, or Windsurf config:</p>
-          <pre class="code-block"><code id="mcp-config-code">{
-  "mcpServers": {
-    "telesend": {
-      "command": "telesend",
-      "args": ["mcp"]
-    }
-  }
-}</code></pre>
-        </div>
-
-        <!-- MCP Tools Catalog -->
-        <div class="panel-card">
-          <div class="card-header">
-            <span class="card-title">Available MCP Tools</span>
-          </div>
-          <div id="mcp-tools-list" class="mcp-tools-container">
-            <div class="empty-state">Loading MCP tools...</div>
-          </div>
-        </div>
-      </section>
-
       <!-- PANEL: TOOLS -->
       <section id="panel-tools" class="tab-panel" role="tabpanel" aria-labelledby="tab-tools">
         <div class="section-header">
           <div>
-            <h2 class="section-title">CLI Utilities & Reference</h2>
+            <h2 class="section-title">Tools &amp; Utilities</h2>
           </div>
         </div>
 
-        <!-- Hash Key Tool -->
+        <!-- Hash Generator -->
         <div class="panel-card mb-4">
           <div class="card-header">
-            <span class="card-title">Hash API Key</span>
-            <span class="badge badge-subtle">telesend hash-key</span>
+            <span class="card-title">Hash Generator</span>
           </div>
-          <p class="text-sm text-muted mb-3">Derive a secure PBKDF2 hash for <code class="code-font">TELESEND_API_KEY_HASH</code>.</p>
-          <form id="form-hash-key">
-            <div class="form-group">
-              <label for="input-api-key">Plaintext API Key</label>
-              <input type="password" id="input-api-key" placeholder="Enter secret API key..." required autocomplete="off">
+          <p class="text-xs text-muted mb-3">
+            The generated hash can be used for MCP password (<code class="code-font">TELESEND_MCP_PASSWORD_HASH</code>), REST API key (<code class="code-font">TELESEND_API_KEY_HASH</code>), or Web UI login password (<code class="code-font">TELESEND_UI_PASSWORD_HASH</code>). Set them in environment variables.
+          </p>
+
+          <div class="form-group mb-3">
+            <label for="input-plain-secret">Plaintext Password / Key</label>
+            <div class="input-with-button">
+              <input type="text" id="input-plain-secret" placeholder="Enter password or key, or click Generator..." autocomplete="off">
+              <button type="button" id="btn-open-generator" class="btn btn-subtle btn-sm">Generator</button>
             </div>
-            <button type="submit" class="btn btn-primary btn-sm">Generate Key Hash</button>
-          </form>
-          <div id="hash-key-output" class="output-box hidden">
-            <div class="output-label">Environment Variable Line:</div>
-            <div class="output-row">
-              <code id="hash-key-text" class="code-font text-xs"></code>
-              <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="hash-key-text">Copy</button>
+          </div>
+
+          <div class="form-group mb-1">
+            <label for="input-hashed-secret">Hashed Password / Key</label>
+            <div class="input-with-button">
+              <input type="text" id="input-hashed-secret" class="code-font" placeholder="Generated hash will appear here..." readonly autocomplete="off">
+              <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="input-hashed-secret">Copy</button>
             </div>
           </div>
         </div>
 
-        <!-- Hash MCP Owner Password Tool -->
-        <div class="panel-card mb-4">
-          <div class="card-header">
-            <span class="card-title">Hash MCP Owner Password</span>
-            <span class="badge badge-subtle">telesend hash-password</span>
-          </div>
-          <p class="text-sm text-muted mb-3">Derive a secure PBKDF2 hash for <code class="code-font">TELESEND_MCP_PASSWORD_HASH</code>.</p>
-          <form id="form-hash-password">
-            <div class="form-group">
-              <label for="input-mcp-password">Owner Password</label>
-              <input type="password" id="input-mcp-password" placeholder="Enter owner password..." required autocomplete="off">
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm">Generate Password Hash</button>
-          </form>
-          <div id="hash-password-output" class="output-box hidden">
-            <div class="output-label">Environment Variable Line:</div>
-            <div class="output-row">
-              <code id="hash-password-text" class="code-font text-xs"></code>
-              <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="hash-password-text">Copy</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Hash Web UI Password Tool -->
-        <div class="panel-card mb-4">
-          <div class="card-header">
-            <span class="card-title">Hash Web UI Password</span>
-          </div>
-          <p class="text-sm text-muted mb-3">Derive a secure PBKDF2 hash for <code class="code-font">TELESEND_UI_PASSWORD_HASH</code>.</p>
-          <form id="form-hash-ui-password">
-            <div class="form-group">
-              <label for="input-ui-password">Web UI Password</label>
-              <input type="password" id="input-ui-password" placeholder="Enter Web UI password..." required autocomplete="off">
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm">Generate Password Hash</button>
-          </form>
-          <div id="hash-ui-password-output" class="output-box hidden">
-            <div class="output-label">Environment Variable Line:</div>
-            <div class="output-row">
-              <code id="hash-ui-password-text" class="code-font text-xs"></code>
-              <button type="button" class="btn btn-sm btn-subtle copy-btn" data-copy-target="hash-ui-password-text">Copy</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- CLI Command Cheatsheet -->
+        <!-- Database SQL Export & Import -->
         <div class="panel-card">
           <div class="card-header">
-            <span class="card-title">CLI Commands Cheat Sheet</span>
+            <span class="card-title">Database Backup &amp; Restore (SQL)</span>
           </div>
-          <div class="cheatsheet">
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend bot list</span>
-              <span class="cheat-desc">List registered bots</span>
+
+          <!-- Subtabs for Export / Import -->
+          <div class="subtabs-bar mb-3" role="tablist" aria-label="Database Actions">
+            <button type="button" role="tab" class="subtab-btn active" id="tab-btn-db-export" aria-selected="true" data-db-tab="export">
+              Export SQL
+            </button>
+            <button type="button" role="tab" class="subtab-btn" id="tab-btn-db-import" aria-selected="false" data-db-tab="import">
+              Import SQL
+            </button>
+          </div>
+
+          <!-- TAB CONTENT: EXPORT -->
+          <div id="db-tab-export" class="subtab-content active" role="tabpanel" aria-labelledby="tab-btn-db-export">
+            <div class="db-tab-centered-box">
+              <p class="db-tab-desc">
+                Export the entire Telesend database as a portable SQL dump file.
+              </p>
+              <div class="db-btn-centered">
+                <button type="button" id="btn-db-download" class="btn btn-primary btn-lg">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download SQL Export
+                </button>
+              </div>
             </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend bot add</span>
-              <span class="cheat-desc">Register bot by prompt</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend bot default &lt;bot&gt;</span>
-              <span class="cheat-desc">Set active default bot</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend bot update &lt;bot&gt; --name &lt;name&gt;</span>
-              <span class="cheat-desc">Update bot display name</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend bot remove &lt;bot&gt;</span>
-              <span class="cheat-desc">Remove bot registration</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend alias add &lt;name&gt; &lt;chat-id&gt;</span>
-              <span class="cheat-desc">Add recipient shortcut</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend alias list [group|private]</span>
-              <span class="cheat-desc">List aliases with filter</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend msg text &lt;alias&gt; "Hello"</span>
-              <span class="cheat-desc">Send message to recipient</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend serve [--port 3100]</span>
-              <span class="cheat-desc">Start server and Web UI</span>
-            </div>
-            <div class="cheat-item">
-              <span class="cheat-cmd">telesend mcp</span>
-              <span class="cheat-desc">Run stdio MCP server</span>
+          </div>
+
+          <!-- TAB CONTENT: IMPORT -->
+          <div id="db-tab-import" class="subtab-content hidden" role="tabpanel" aria-labelledby="tab-btn-db-import">
+            <div class="db-tab-centered-box">
+              <div class="alert alert-warning mb-4" style="display: flex; gap: 10px; align-items: flex-start; text-align: left;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <div class="text-xs">
+                  <strong>Warning:</strong> Importing will permanently overwrite and replace all current database records (bots, aliases, history, OAuth tokens). Ensure you have exported a backup first.
+                </div>
+              </div>
+
+              <form id="form-db-import" class="db-import-centered-form">
+                <div class="form-group mb-4 text-center" style="width: 100%;">
+                  <label for="input-db-file" class="db-file-label">Select SQL Backup File (.sql)</label>
+                  <input type="file" id="input-db-file" accept=".sql,text/plain" class="form-input db-file-input" required>
+                </div>
+
+                <div class="db-btn-centered">
+                  <button type="submit" id="btn-db-import-submit" class="btn btn-danger btn-lg">
+                    Import &amp; Overwrite Database
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
       </section>
     </main>
   </div>
+
+  <!-- MODAL: SERVER STATUS -->
+  <dialog id="modal-server-status" class="app-modal" aria-labelledby="server-status-title" closedby="any">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h2 id="server-status-title" class="modal-title">Server Status</h2>
+        <button type="button" class="btn-close" id="close-server-status" aria-label="Close">&times;</button>
+      </div>
+      <div class="meta-grid mb-4">
+        <div class="meta-item">
+          <span class="meta-label">Version</span>
+          <span id="srv-version" class="meta-val code-font">...</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Bot API Spec</span>
+          <span id="srv-bot-api" class="meta-val code-font">...</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">REST API Server</span>
+          <span id="srv-rest-status" class="meta-val"><span class="badge badge-success">Active</span></span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">MCP Server</span>
+          <span id="srv-mcp-status" class="meta-val"><span class="badge badge-success">Active</span></span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-subtle w-full" id="close-server-status-btn">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- MODAL: GENERATOR -->
+  <dialog id="modal-generator" class="app-modal" aria-labelledby="generator-title" closedby="any">
+    <div class="modal-card" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2 id="generator-title" class="modal-title">Generator</h2>
+        <button type="button" class="btn-close" id="close-generator" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-generator-modal">
+        <div class="form-group mb-3">
+          <label for="gen-length">Length</label>
+          <input type="number" id="gen-length" min="8" max="128" value="32" class="form-input" style="width: 100%;">
+        </div>
+        <div class="form-group mb-4">
+          <label class="mb-2" style="display: block;">Character Options</label>
+          <div class="generator-grid-2col">
+            <label class="gen-checkbox-label">
+              <input type="checkbox" id="gen-opt-upper" checked> Uppercase (A-Z)
+            </label>
+            <label class="gen-checkbox-label">
+              <input type="checkbox" id="gen-opt-lower" checked> Lowercase (a-z)
+            </label>
+            <label class="gen-checkbox-label">
+              <input type="checkbox" id="gen-opt-digits" checked> Numbers (0-9)
+            </label>
+            <label class="gen-checkbox-label">
+              <input type="checkbox" id="gen-opt-symbols" checked> Special Symbols
+            </label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-generator">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-modal-generate">Generate</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
 
   <!-- MODAL: LOGIN -->
   <dialog id="modal-login" class="app-modal" aria-labelledby="login-title" closedby="none">

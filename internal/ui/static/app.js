@@ -860,76 +860,220 @@
     try {
       const res = await apiCall('/server-info');
       serverInfo = res;
-      document.getElementById('srv-version').textContent = `v${res.version}`;
-      document.getElementById('srv-bot-api').textContent = `Telegram Bot API ${res.botApiVersion}`;
-      document.getElementById('srv-db-file').textContent = res.databaseFile;
+      const verEl = document.getElementById('srv-version');
+      if (verEl) verEl.textContent = `v${res.version}`;
+      const botApiEl = document.getElementById('srv-bot-api');
+      if (botApiEl) botApiEl.textContent = `Telegram Bot API ${res.botApiVersion}`;
 
-      const toolsListEl = document.getElementById('mcp-tools-list');
-      if (res.mcpTools && res.mcpTools.length > 0) {
-        toolsListEl.innerHTML = res.mcpTools.map((t) => `
-          <div class="mcp-tool-card">
-            <div class="mcp-tool-name">${escapeHtml(t.name)}</div>
-            <div class="mcp-tool-desc">${escapeHtml(t.description)}</div>
-          </div>
-        `).join('');
+      const restStatusEl = document.getElementById('srv-rest-status');
+      if (restStatusEl) {
+        if (res.restActive) {
+          restStatusEl.innerHTML = '<span class="badge badge-success">Active</span>';
+        } else {
+          restStatusEl.innerHTML = '<span class="badge badge-danger">Inactive</span>';
+        }
+      }
+
+      const mcpStatusEl = document.getElementById('srv-mcp-status');
+      if (mcpStatusEl) {
+        if (res.mcpActive) {
+          mcpStatusEl.innerHTML = '<span class="badge badge-success">Active</span>';
+        } else {
+          mcpStatusEl.innerHTML = '<span class="badge badge-danger">Inactive</span>';
+        }
       }
     } catch (err) {
       console.warn('Failed to load server info', err);
     }
   }
 
-  // TOOLS: HASH GENERATORS
-  document.getElementById('form-hash-key').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const val = document.getElementById('input-api-key').value;
-    if (!val) return;
+  // SERVER STATUS MODAL
+  const modalServerStatus = document.getElementById('modal-server-status');
+  const serverStatusBtn = document.getElementById('server-status-btn');
+  const closeServerStatus = document.getElementById('close-server-status');
+  const closeServerStatusBtn = document.getElementById('close-server-status-btn');
+
+  if (serverStatusBtn && modalServerStatus) {
+    serverStatusBtn.addEventListener('click', () => {
+      const accMenu = document.getElementById('account-menu');
+      if (accMenu) accMenu.classList.add('hidden');
+      loadServerInfo();
+      modalServerStatus.showModal();
+    });
+  }
+  if (closeServerStatus && modalServerStatus) {
+    closeServerStatus.addEventListener('click', () => modalServerStatus.close());
+  }
+  if (closeServerStatusBtn && modalServerStatus) {
+    closeServerStatusBtn.addEventListener('click', () => modalServerStatus.close());
+  }
+
+  // Random Secret Generator Function
+  function generateRandomSecret(length, useUpper, useLower, useDigits, useSymbols) {
+    let chars = '';
+    if (useUpper) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    if (useLower) chars += 'abcdefghijklmnopqrstuvwxyz';
+    if (useDigits) chars += '0123456789';
+    if (useSymbols) chars += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+    if (!chars) chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+    const array = new Uint32Array(length);
+    window.crypto.getRandomValues(array);
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      result += chars[array[i] % chars.length];
+    }
+    return result;
+  }
+
+  // HASH GENERATOR & MODAL
+  const modalGenerator = document.getElementById('modal-generator');
+  const btnOpenGenerator = document.getElementById('btn-open-generator');
+  const closeGenerator = document.getElementById('close-generator');
+  const cancelGenerator = document.getElementById('cancel-generator');
+  const formGeneratorModal = document.getElementById('form-generator-modal');
+  const inputPlainSecret = document.getElementById('input-plain-secret');
+  const inputHashedSecret = document.getElementById('input-hashed-secret');
+
+  if (btnOpenGenerator && modalGenerator) {
+    btnOpenGenerator.addEventListener('click', () => {
+      modalGenerator.showModal();
+    });
+  }
+  if (closeGenerator && modalGenerator) {
+    closeGenerator.addEventListener('click', () => modalGenerator.close());
+  }
+  if (cancelGenerator && modalGenerator) {
+    cancelGenerator.addEventListener('click', () => modalGenerator.close());
+  }
+
+  let hashDebounceTimer = null;
+  async function updateHashFromPlain(val) {
+    val = (val || '').trim();
+    if (!val) {
+      if (inputHashedSecret) inputHashedSecret.value = '';
+      return;
+    }
     try {
       const res = await apiCall('/hash', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'key', value: val }),
       });
-      document.getElementById('hash-key-text').textContent = res.envLine;
-      document.getElementById('hash-key-output').classList.remove('hidden');
+      if (inputHashedSecret) inputHashedSecret.value = res.hash;
     } catch (err) {
-      showAlert(err.message, true);
+      console.warn('Failed to compute hash:', err);
     }
-  });
+  }
 
-  document.getElementById('form-hash-password').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const val = document.getElementById('input-mcp-password').value;
-    if (!val) return;
-    try {
-      const res = await apiCall('/hash', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'password', value: val }),
-      });
-      document.getElementById('hash-password-text').textContent = res.envLine;
-      document.getElementById('hash-password-output').classList.remove('hidden');
-    } catch (err) {
-      showAlert(err.message, true);
-    }
-  });
+  if (inputPlainSecret) {
+    inputPlainSecret.addEventListener('input', () => {
+      clearTimeout(hashDebounceTimer);
+      hashDebounceTimer = setTimeout(() => {
+        updateHashFromPlain(inputPlainSecret.value);
+      }, 150);
+    });
+  }
 
-  const formHashUIPw = document.getElementById('form-hash-ui-password');
-  if (formHashUIPw) {
-    formHashUIPw.addEventListener('submit', async (e) => {
+  if (formGeneratorModal) {
+    formGeneratorModal.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const val = document.getElementById('input-ui-password').value;
-      if (!val) return;
-      try {
-        const res = await apiCall('/hash', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'ui-password', value: val }),
-        });
-        document.getElementById('hash-ui-password-text').textContent = res.envLine;
-        document.getElementById('hash-ui-password-output').classList.remove('hidden');
-      } catch (err) {
-        showAlert(err.message, true);
+      const lenInput = document.getElementById('gen-length');
+      let length = lenInput ? parseInt(lenInput.value, 10) : 32;
+      if (isNaN(length) || length < 4) length = 32;
+      if (length > 256) length = 256;
+
+      const upper = document.getElementById('gen-opt-upper')?.checked ?? true;
+      const lower = document.getElementById('gen-opt-lower')?.checked ?? true;
+      const digits = document.getElementById('gen-opt-digits')?.checked ?? true;
+      const symbols = document.getElementById('gen-opt-symbols')?.checked ?? true;
+
+      const randomSecret = generateRandomSecret(length, upper, lower, digits, symbols);
+      if (inputPlainSecret) {
+        inputPlainSecret.value = randomSecret;
       }
+      await updateHashFromPlain(randomSecret);
+      if (modalGenerator) modalGenerator.close();
+    });
+  }
+
+  // Database Subtabs (Export SQL / Import SQL)
+  document.querySelectorAll('.subtab-btn[data-db-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-db-tab');
+      document.querySelectorAll('.subtab-btn[data-db-tab]').forEach((b) => {
+        b.classList.remove('active');
+        b.setAttribute('aria-selected', 'false');
+      });
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
+
+      const expEl = document.getElementById('db-tab-export');
+      const impEl = document.getElementById('db-tab-import');
+      if (expEl) expEl.classList.toggle('hidden', tab !== 'export');
+      if (impEl) impEl.classList.toggle('hidden', tab !== 'import');
+    });
+  });
+
+  // DB Download SQL
+  const btnDBDownload = document.getElementById('btn-db-download');
+  if (btnDBDownload) {
+    btnDBDownload.addEventListener('click', () => {
+      window.location.href = '/api/ui/db/export?download=true';
+    });
+  }
+
+  // DB Import SQL Form
+  const formDBImport = document.getElementById('form-db-import');
+  if (formDBImport) {
+    formDBImport.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('input-db-file');
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        showAlert('Please select an SQL file to import.', true);
+        return;
+      }
+
+      showConfirmDialog({
+        title: 'Overwrite Database?',
+        prompt: 'Are you sure you want to import this SQL? All existing bots, aliases, delivery history, and tokens in the database will be permanently overwritten and replaced.',
+        confirmText: 'Overwrite & Import',
+        danger: true,
+        onConfirm: async () => {
+          try {
+            const submitBtn = document.getElementById('btn-db-import-submit');
+            if (submitBtn) {
+              submitBtn.disabled = true;
+              submitBtn.textContent = 'Importing...';
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            await apiCall('/db/import', {
+              method: 'POST',
+              body: formData,
+            });
+
+            showAlert('Database imported successfully. All data was replaced.');
+            if (formDBImport) formDBImport.reset();
+
+            // Refresh app data
+            loadOverview();
+            loadBots();
+            loadAliases();
+            loadHistory();
+            loadServerInfo();
+          } catch (err) {
+            showAlert(`Import failed: ${err.message}`, true);
+          } finally {
+            const submitBtn = document.getElementById('btn-db-import-submit');
+            if (submitBtn) {
+              submitBtn.disabled = false;
+              submitBtn.textContent = 'Import & Overwrite Database';
+            }
+          }
+        },
+      });
     });
   }
 

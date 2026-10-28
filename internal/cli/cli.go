@@ -730,10 +730,12 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 		if err != nil {
 			return err
 		}
-		uiHandler, err = ui.NewServer(a, v)
+		uiSrv, err := ui.NewServer(a, v)
 		if err != nil {
 			return err
 		}
+		uiSrv.SetServiceStatus(!noREST, !noMCP)
+		uiHandler = uiSrv
 	}
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))

@@ -78,6 +78,42 @@ func TestStaticAssets(t *testing.T) {
 	if !strings.Contains(htmlContent, "hist-detail-preview") {
 		t.Fatal("expected message preview container in Delivery Details modal")
 	}
+	if !strings.Contains(htmlContent, "https://github.com/dsnbyte/telesend") {
+		t.Fatal("expected GitHub repository button link in header")
+	}
+	if !strings.Contains(htmlContent, "Tools &amp; Utilities") {
+		t.Fatal("expected Tools & Utilities page title and tab")
+	}
+	if strings.Contains(htmlContent, "CLI Commands Cheat Sheet") {
+		t.Fatal("expected CLI Commands Cheat Sheet to be removed from UI")
+	}
+	if !strings.Contains(htmlContent, "srv-rest-status") || !strings.Contains(htmlContent, "srv-mcp-status") {
+		t.Fatal("expected REST API and MCP server status elements in Server Status modal")
+	}
+	if strings.Contains(htmlContent, "srv-db-file") {
+		t.Fatal("expected database and transport info to be removed")
+	}
+	if strings.Contains(htmlContent, "data-tab=\"server\"") {
+		t.Fatal("expected Server & MCP page tab to be removed")
+	}
+	if !strings.Contains(htmlContent, "modal-server-status") || !strings.Contains(htmlContent, "server-status-btn") {
+		t.Fatal("expected Server Status modal and dropdown button")
+	}
+	if strings.Contains(htmlContent, "input-db-sql-text") {
+		t.Fatal("expected paste SQL input to be removed from import")
+	}
+	if strings.Contains(htmlContent, "d=\"M7 11V7a5 5 0 0 1 10 0v4\"") {
+		t.Fatal("expected old lock icon to be removed")
+	}
+	if !strings.Contains(htmlContent, "btn-open-generator") || !strings.Contains(htmlContent, "modal-generator") {
+		t.Fatal("expected generator button and modal in hash tool")
+	}
+	if strings.Contains(htmlContent, "View SQL Script") {
+		t.Fatal("expected View SQL Script to be removed from export tab")
+	}
+	if !strings.Contains(htmlContent, "tab-btn-db-export") || !strings.Contains(htmlContent, "tab-btn-db-import") {
+		t.Fatal("expected database export and import subtabs")
+	}
 
 	// 2. CSS
 	resCSS, err := client.Get(ts.URL + "/app.css")
@@ -100,6 +136,12 @@ func TestStaticAssets(t *testing.T) {
 	if !strings.Contains(cssContent, ".tg-bubble-container") || !strings.Contains(cssContent, ".tg-bubble") {
 		t.Fatal("expected Telegram-styled chat bubble CSS rules")
 	}
+	if !strings.Contains(cssContent, ".badge-danger") {
+		t.Fatal("expected .badge-danger CSS rule")
+	}
+	if !strings.Contains(cssContent, ".subtabs-bar") || !strings.Contains(cssContent, ".subtab-btn") {
+		t.Fatal("expected subtabs CSS rules")
+	}
 
 	// 3. JS
 	resJS, err := client.Get(ts.URL + "/app.js")
@@ -117,6 +159,9 @@ func TestStaticAssets(t *testing.T) {
 	}
 	if !strings.Contains(jsContent, "ICONS") {
 		t.Fatal("expected ICONS object with reusable SVG icons in app.js")
+	}
+	if !strings.Contains(jsContent, "generateRandomSecret") {
+		t.Fatal("expected generateRandomSecret function in app.js")
 	}
 
 	// 4. Icon
@@ -630,3 +675,132 @@ func TestHistoryPaginationAndConfig(t *testing.T) {
 		t.Fatal("expected hasMore to be false on page 3")
 	}
 }
+
+func TestDatabaseExportAndImportAPI(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	jar := make(map[string]*http.Cookie)
+	doReq := func(method, path string, body any) (*http.Response, []byte) {
+		var r io.Reader
+		if body != nil {
+			switch b := body.(type) {
+			case []byte:
+				r = bytes.NewReader(b)
+			default:
+				data, _ := json.Marshal(body)
+				r = bytes.NewReader(data)
+			}
+		}
+		req, _ := http.NewRequest(method, ts.URL+path, r)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		for _, c := range jar {
+			req.AddCookie(c)
+		}
+		res, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range res.Cookies() {
+			jar[c.Name] = c
+		}
+		data, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res, data
+	}
+
+	// 1. Unauthenticated export fails
+	res, _ := doReq(http.MethodGet, "/api/ui/db/export", nil)
+	if res.StatusCode != 401 {
+		t.Fatalf("expected 401 unauthenticated, got %d", res.StatusCode)
+	}
+
+	// Login
+	doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{"password": "test_ui_password"})
+
+	// 2. Add initial bot and alias
+	doReq(http.MethodPost, "/api/ui/bots", map[string]string{"token": "initial_bot_token"})
+	doReq(http.MethodPost, "/api/ui/aliases", map[string]any{"name": "original_alias", "chatId": "-100123"})
+
+	// 3. Export as JSON
+	res, data := doReq(http.MethodGet, "/api/ui/db/export", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for export, got %d: %s", res.StatusCode, string(data))
+	}
+	var expRes struct {
+		SQL  string `json:"sql"`
+		Size int    `json:"size"`
+	}
+	_ = json.Unmarshal(data, &expRes)
+	if !strings.Contains(expRes.SQL, "original_alias") {
+		t.Fatal("expected export to contain 'original_alias'")
+	}
+	if expRes.Size <= 0 {
+		t.Fatalf("expected positive export size, got %d", expRes.Size)
+	}
+
+	// 4. Export as Download
+	res, data = doReq(http.MethodGet, "/api/ui/db/export?download=true", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for export download, got %d", res.StatusCode)
+	}
+	cd := res.Header.Get("Content-Disposition")
+	if !strings.Contains(cd, "telesend-backup-") {
+		t.Fatalf("expected attachment header with telesend-backup, got %s", cd)
+	}
+	savedSQL := string(data)
+
+	// 5. Add a second alias that should be overwritten later
+	doReq(http.MethodPost, "/api/ui/aliases", map[string]any{"name": "temp_alias", "chatId": "-100999"})
+
+	// Verify temp_alias is present
+	res, data = doReq(http.MethodGet, "/api/ui/aliases", nil)
+	if !strings.Contains(string(data), "temp_alias") {
+		t.Fatal("expected temp_alias to be present before import")
+	}
+
+	// 6. Import SQL via JSON to overwrite database
+	res, data = doReq(http.MethodPost, "/api/ui/db/import", map[string]string{
+		"sql": savedSQL,
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for import, got %d: %s", res.StatusCode, string(data))
+	}
+
+	// Verify temp_alias is gone and original_alias is still present
+	res, data = doReq(http.MethodGet, "/api/ui/aliases", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 after import, got %d: %s", res.StatusCode, string(data))
+	}
+	if strings.Contains(string(data), "temp_alias") {
+		t.Fatal("expected temp_alias to be wiped out after import overwrite")
+	}
+	if !strings.Contains(string(data), "original_alias") {
+		t.Fatal("expected original_alias to be restored after import")
+	}
+
+	// 7. Verify session is still valid after import
+	res, data = doReq(http.MethodGet, "/api/ui/auth/status", nil)
+	var authStatus struct {
+		Authenticated bool `json:"authenticated"`
+	}
+	_ = json.Unmarshal(data, &authStatus)
+	if !authStatus.Authenticated {
+		t.Fatal("expected active session to be preserved after import")
+	}
+
+	// 8. Server info returns restActive and mcpActive
+	res, data = doReq(http.MethodGet, "/api/ui/server-info", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for server-info, got %d", res.StatusCode)
+	}
+	var srvInfo struct {
+		RestActive bool `json:"restActive"`
+		McpActive  bool `json:"mcpActive"`
+	}
+	_ = json.Unmarshal(data, &srvInfo)
+	if !srvInfo.RestActive || !srvInfo.McpActive {
+		t.Fatalf("expected restActive and mcpActive to be true: %+v", srvInfo)
+	}
+}
+

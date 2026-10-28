@@ -503,3 +503,13 @@ func (a *App) DeleteHistory(ctx context.Context, id int64, deleteTelegram bool) 
 	}, nil
 }
 
+// ExportDatabase dumps the database schema and data as an SQL script.
+func (a *App) ExportDatabase() (string, error) {
+	return store.ExportSQL(a.DB)
+}
+
+// ImportDatabase replaces the database content with the provided SQL script.
+func (a *App) ImportDatabase(script string) error {
+	return store.ImportSQL(a.DB, script)
+}
+
