@@ -698,16 +698,17 @@
     }
   });
 
-  // Media Source Toggle (Upload vs URL)
+  // Media Source Radio Toggle (Upload vs URL)
   let activeMediaSource = 'upload';
-  document.querySelectorAll('.segment-btn[data-media-src]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.segment-btn[data-media-src]').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeMediaSource = btn.getAttribute('data-media-src');
-      const isUpload = activeMediaSource === 'upload';
-      document.getElementById('media-upload-group').classList.toggle('hidden', !isUpload);
-      document.getElementById('media-url-group').classList.toggle('hidden', isUpload);
+  const mediaSourceRadios = document.querySelectorAll('input[name="media-source"]');
+  mediaSourceRadios.forEach((radio) => {
+    radio.addEventListener('change', () => {
+      if (radio.checked) {
+        activeMediaSource = radio.value;
+        const isUpload = activeMediaSource === 'upload';
+        document.getElementById('media-upload-group').classList.toggle('hidden', !isUpload);
+        document.getElementById('media-url-group').classList.toggle('hidden', isUpload);
+      }
     });
   });
 
@@ -737,6 +738,10 @@
 
     try {
       let res;
+      const checkedSource = document.querySelector('input[name="media-source"]:checked');
+      if (checkedSource) activeMediaSource = checkedSource.value;
+      const silent = document.getElementById('send-silent')?.checked || false;
+
       if (['photo', 'document', 'audio', 'video', 'animation', 'voice'].includes(typ) && activeMediaSource === 'upload') {
         // Multipart form-data
         const fileInput = document.getElementById('send-media-file');
@@ -748,7 +753,7 @@
         fd.append('to', to);
         if (bot) fd.append('bot', bot);
         if (threadId > 0) fd.append('threadId', String(threadId));
-        if (document.getElementById('send-media-silent').checked) fd.append('silent', 'true');
+        if (silent) fd.append('silent', 'true');
         const cap = document.getElementById('send-media-caption').value.trim();
         if (cap) fd.append('caption', cap);
         fd.append(typ, fileInput.files[0]);
@@ -760,7 +765,6 @@
       } else {
         // JSON payload
         let payload = {};
-        let silent = false;
 
         if (typ === 'text') {
           const text = document.getElementById('send-text-content').value;
@@ -768,7 +772,6 @@
           payload.text = text;
           const parseMode = document.getElementById('send-parse-mode').value;
           if (parseMode) payload.parse_mode = parseMode;
-          silent = document.getElementById('send-silent').checked;
         } else if (['photo', 'document', 'audio', 'video', 'animation', 'voice'].includes(typ)) {
           const val = document.getElementById('send-media-url').value.trim();
           if (!val) throw new Error('URL or File ID is required.');
@@ -783,7 +786,6 @@
           payload[typ] = srcObj;
           const cap = document.getElementById('send-media-caption').value.trim();
           if (cap) payload.caption = cap;
-          silent = document.getElementById('send-media-silent').checked;
         } else if (typ === 'location') {
           const lat = parseFloat(document.getElementById('send-lat').value);
           const lon = parseFloat(document.getElementById('send-lon').value);

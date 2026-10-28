@@ -175,21 +175,13 @@
                 <label for="send-text-content">Message Text</label>
                 <textarea id="send-text-content" rows="4" placeholder="Enter message text..."></textarea>
               </div>
-              <div class="form-row">
-                <div class="form-group flex-1">
-                  <label for="send-parse-mode">Parse Mode</label>
-                  <select id="send-parse-mode">
-                    <option value="">Plain Text</option>
-                    <option value="HTML">HTML</option>
-                    <option value="MarkdownV2">MarkdownV2</option>
-                  </select>
-                </div>
-                <div class="form-group flex-1 flex-center">
-                  <label class="checkbox-label">
-                    <input type="checkbox" id="send-silent">
-                    <span>Silent notification</span>
-                  </label>
-                </div>
+              <div class="form-group">
+                <label for="send-parse-mode">Parse Mode</label>
+                <select id="send-parse-mode">
+                  <option value="">Plain Text</option>
+                  <option value="HTML">HTML</option>
+                  <option value="MarkdownV2">MarkdownV2</option>
+                </select>
               </div>
             </div>
 
@@ -197,15 +189,21 @@
             <div id="type-section-media" class="type-section hidden">
               <div class="form-group">
                 <label>Media Source</label>
-                <div class="segmented-control">
-                  <button type="button" class="segment-btn active" data-media-src="upload">File Upload</button>
-                  <button type="button" class="segment-btn" data-media-src="url">URL or File ID</button>
+                <div class="radio-group" role="radiogroup" aria-label="Media Source">
+                  <label class="radio-label">
+                    <input type="radio" name="media-source" value="upload" checked>
+                    <span>File Upload</span>
+                  </label>
+                  <label class="radio-label">
+                    <input type="radio" name="media-source" value="url">
+                    <span>URL or File ID</span>
+                  </label>
                 </div>
               </div>
 
               <div id="media-upload-group" class="form-group">
                 <label for="send-media-file">Choose File</label>
-                <input type="file" id="send-media-file" class="file-input">
+                <input type="file" id="send-media-file" class="form-input file-input">
               </div>
 
               <div id="media-url-group" class="form-group hidden">
@@ -216,13 +214,6 @@
               <div class="form-group">
                 <label for="send-media-caption">Caption <span class="text-muted font-normal">(optional)</span></label>
                 <input type="text" id="send-media-caption" placeholder="Media caption...">
-              </div>
-
-              <div class="form-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="send-media-silent">
-                  <span>Silent notification</span>
-                </label>
               </div>
             </div>
 
@@ -280,6 +271,14 @@
             <div class="form-group">
               <label for="send-thread-override">Thread ID <span class="text-muted font-normal">(optional override)</span></label>
               <input type="number" id="send-thread-override" min="1" step="1" placeholder="Leave empty to use alias default">
+            </div>
+
+            <!-- Silent notification -->
+            <div class="form-group send-silent-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="send-silent">
+                <span>Silent notification</span>
+              </label>
             </div>
 
             <div class="form-actions">
