@@ -573,3 +573,60 @@ func TestCLIUICommand(t *testing.T) {
 	}
 }
 
+func TestCLIHistory(t *testing.T) {
+	env := setupCLI(t)
+	ctx := context.Background()
+
+	// 1. Initial history is empty
+	out, _, code := run(ctx, env.tg, env.wrapper, []string{"history"}, "")
+	if code != 0 || !strings.Contains(out, "No message delivery history.") {
+		t.Fatalf("expected empty history: %d %q", code, out)
+	}
+
+	// 2. Add bot and alias, then send message
+	_, _, _ = run(ctx, env.tg, env.wrapper, []string{"bot", "add"}, "bot_token\n")
+	_, _, _ = run(ctx, env.tg, env.wrapper, []string{"alias", "add", "ops", "-100123"}, "")
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"msg", "text", "ops", "hello", "from", "cli"}, "")
+	if code != 0 {
+		t.Fatalf("msg send failed: %d %q", code, out)
+	}
+
+	// 3. History table view
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history"}, "")
+	if code != 0 || !strings.Contains(out, "hello from cli") || !strings.Contains(out, "@default_bot") {
+		t.Fatalf("history list failed: %d %q", code, out)
+	}
+
+	// 4. History JSON view
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history", "--json"}, "")
+	if code != 0 {
+		t.Fatalf("history --json failed: %d %q", code, out)
+	}
+	var entries []store.HistoryEntry
+	if err := json.Unmarshal([]byte(out), &entries); err != nil || len(entries) != 1 {
+		t.Fatalf("invalid json output: %v, entries: %d", err, len(entries))
+	}
+	if entries[0].Recipient != "ops" || entries[0].MessageType != "text" {
+		t.Fatalf("unexpected entry: %+v", entries[0])
+	}
+
+	// 5. History prune
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history", "prune"}, "")
+	if code != 0 || !strings.Contains(out, "Pruned 0 expired history records") {
+		t.Fatalf("history prune failed: %d %q", code, out)
+	}
+
+	// 6. History clear
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history", "clear"}, "")
+	if code != 0 || !strings.Contains(out, "Cleared 1 history records.") {
+		t.Fatalf("history clear failed: %d %q", code, out)
+	}
+
+	// 7. Verify empty again
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history"}, "")
+	if code != 0 || !strings.Contains(out, "No message delivery history.") {
+		t.Fatalf("expected empty after clear: %d %q", code, out)
+	}
+}
+
+

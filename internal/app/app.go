@@ -6,7 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"maps"
+	"os"
 	"strconv"
 	"strings"
 
@@ -21,6 +23,7 @@ type App struct {
 	DatabasePath string
 	Aliases      *store.Aliases
 	Bots         *store.Bots
+	History      *store.History
 	OAuth        *store.OAuth
 	UIAuth       *store.UIAuth
 	Telegram     *telegram.Client
@@ -36,12 +39,28 @@ func New(path string, client *telegram.Client) (*App, error) {
 	if client == nil {
 		client = telegram.NewClient()
 	}
+	retentionDays := getRetentionDays()
 	return &App{
 		DB: db, DatabasePath: path,
-		Aliases: store.NewAliases(db), Bots: store.NewBots(db), OAuth: store.NewOAuth(db),
+		Aliases: store.NewAliases(db), Bots: store.NewBots(db), History: store.NewHistory(db, retentionDays),
+		OAuth: store.NewOAuth(db),
 		UIAuth: store.NewUIAuth(db),
 		Telegram: client,
 	}, nil
+}
+
+func getRetentionDays() int {
+	if s := os.Getenv("TELESEND_HISTORY_RETENTION_DAYS"); s != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			return n
+		}
+	}
+	if s := os.Getenv("TELESEND_HISTORY_RETENTION"); s != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 7
 }
 
 // Close releases the database.
@@ -245,10 +264,122 @@ func (a *App) Send(ctx context.Context, req SendRequest) (*Delivery, error) {
 	if err != nil {
 		return nil, err
 	}
+	mid := messageID(raw)
+	if a.History != nil {
+		var msgIDPtr *int64
+		if mid != 0 {
+			msgIDPtr = &mid
+		}
+		var threadPtr *int
+		if rcpt.ThreadID != 0 {
+			threadPtr = &rcpt.ThreadID
+		}
+		summary := summarizePayload(req.Type, req.Payload)
+		sanitizedPayload := sanitizePayload(req.Payload)
+		payloadBytes, _ := json.Marshal(sanitizedPayload)
+		_, _ = a.History.Record(store.HistoryEntry{
+			Bot:             bot.Username,
+			ChatID:          rcpt.ChatID,
+			Recipient:       req.To,
+			MessageThreadID: threadPtr,
+			MessageType:     req.Type,
+			Summary:         summary,
+			Payload:         payloadBytes,
+			MessageID:       msgIDPtr,
+			Status:          "delivered",
+		})
+	}
 	return &Delivery{
 		Bot: bot.Username, ChatID: rcpt.ChatID, ThreadID: rcpt.ThreadID,
-		MessageID: messageID(raw), Result: raw,
+		MessageID: mid, Result: raw,
 	}, nil
+}
+
+func summarizePayload(msgType string, payload map[string]any) string {
+	if payload == nil {
+		return msgType
+	}
+	if text, ok := payload["text"].(string); ok && strings.TrimSpace(text) != "" {
+		s := strings.TrimSpace(text)
+		if len(s) > 120 {
+			return s[:117] + "..."
+		}
+		return s
+	}
+	if caption, ok := payload["caption"].(string); ok && strings.TrimSpace(caption) != "" {
+		s := strings.TrimSpace(caption)
+		if len(s) > 120 {
+			return s[:117] + "..."
+		}
+		return s
+	}
+	if msgType == "poll" {
+		if q, ok := payload["question"].(string); ok && strings.TrimSpace(q) != "" {
+			return "Poll: " + strings.TrimSpace(q)
+		}
+	}
+	if msgType == "dice" {
+		if emoji, ok := payload["emoji"].(string); ok && emoji != "" {
+			return "Dice: " + emoji
+		}
+		return "Dice: 🎲"
+	}
+	if msgType == "location" {
+		if lat, ok1 := payload["latitude"]; ok1 {
+			if lon, ok2 := payload["longitude"]; ok2 {
+				return fmt.Sprintf("Location: %v, %v", lat, lon)
+			}
+		}
+	}
+	if op, ok := telegram.Get(msgType); ok && len(op.MediaFields) > 0 {
+		field := op.MediaFields[0]
+		if media, ok := payload[field].(map[string]any); ok {
+			src, _ := media["source"].(string)
+			val, _ := media["value"].(string)
+			if src != "" && val != "" {
+				return fmt.Sprintf("%s (%s: %s)", msgType, src, val)
+			}
+			if u, ok := media["file"].(telegram.Upload); ok {
+				return fmt.Sprintf("%s (upload: %s)", msgType, u.Name())
+			}
+		}
+	}
+	return msgType
+}
+
+func sanitizePayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(payload))
+	for k, v := range payload {
+		if k == "chat_id" || k == "message_thread_id" {
+			continue
+		}
+		out[k] = sanitizeValue(v)
+	}
+	return out
+}
+
+func sanitizeValue(v any) any {
+	switch val := v.(type) {
+	case telegram.Upload:
+		return map[string]any{"filename": val.Name()}
+	case map[string]any:
+		res := make(map[string]any, len(val))
+		for k, child := range val {
+			res[k] = sanitizeValue(child)
+		}
+		return res
+	case []any:
+		res := make([]any, len(val))
+		for i, child := range val {
+			res[i] = sanitizeValue(child)
+		}
+		return res
+	default:
+		return val
+	}
 }
 
 func messageID(raw json.RawMessage) int64 {

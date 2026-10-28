@@ -7,10 +7,12 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/dsnbyte/telesend/internal/secret"
+	"github.com/dsnbyte/telesend/internal/store"
 	"github.com/dsnbyte/telesend/internal/testutil"
 	"github.com/dsnbyte/telesend/internal/ui"
 )
@@ -425,4 +427,46 @@ func TestBotsAndAliasesManagement(t *testing.T) {
 		t.Fatalf("expected 200 for multipart send, got %v", resMP)
 	}
 	resMP.Body.Close()
+
+	// 16. History Endpoints
+	res, data = doReq(http.MethodGet, "/api/ui/history", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for get history, got %d", res.StatusCode)
+	}
+	var histRes struct {
+		Data          []store.HistoryEntry `json:"data"`
+		RetentionDays int                  `json:"retentionDays"`
+	}
+	_ = json.Unmarshal(data, &histRes)
+	if len(histRes.Data) != 2 {
+		t.Fatalf("expected 2 history entries, got %d", len(histRes.Data))
+	}
+	if histRes.RetentionDays != 7 {
+		t.Fatalf("expected 7 retention days, got %d", histRes.RetentionDays)
+	}
+
+	firstID := histRes.Data[0].ID
+	res, data = doReq(http.MethodGet, "/api/ui/history/"+strconv.FormatInt(firstID, 10), nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for get single history, got %d", res.StatusCode)
+	}
+
+	res, data = doReq(http.MethodDelete, "/api/ui/history/"+strconv.FormatInt(firstID, 10), nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for delete single history, got %d", res.StatusCode)
+	}
+
+	res, data = doReq(http.MethodDelete, "/api/ui/history", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for clear history, got %d", res.StatusCode)
+	}
+
+	res, data = doReq(http.MethodGet, "/api/ui/history", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for get history after clear, got %d", res.StatusCode)
+	}
+	_ = json.Unmarshal(data, &histRes)
+	if len(histRes.Data) != 0 {
+		t.Fatalf("expected 0 history entries after clear, got %d", len(histRes.Data))
+	}
 }

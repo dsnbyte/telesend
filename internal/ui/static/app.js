@@ -5,6 +5,8 @@
   // State
   let botsList = [];
   let aliasesList = [];
+  let historyList = [];
+  let historyRetentionDays = 7;
   let currentAliasFilter = '';
   let serverInfo = null;
 
@@ -21,6 +23,7 @@
   const modalLogin = document.getElementById('modal-login');
   const modalEditBot = document.getElementById('modal-edit-bot');
   const modalEditAlias = document.getElementById('modal-edit-alias');
+  const modalHistoryDetail = document.getElementById('modal-history-detail');
 
   // Tabs
   const navTabs = document.querySelectorAll('.nav-item');
@@ -96,6 +99,10 @@
       tab.setAttribute('aria-selected', 'true');
       const targetPanel = document.getElementById(`panel-${target}`);
       if (targetPanel) targetPanel.classList.add('active');
+
+      if (target === 'history') {
+        loadHistory();
+      }
     });
   });
 
@@ -155,7 +162,7 @@
   }
 
   function closeAllModals() {
-    [modalLogin, modalEditBot, modalEditAlias].forEach((m) => {
+    [modalLogin, modalEditBot, modalEditAlias, modalHistoryDetail].forEach((m) => {
       if (m && m.open && typeof m.close === 'function') m.close();
     });
   }
@@ -193,7 +200,7 @@
 
   // Dashboard Data Loading
   async function loadDashboard() {
-    await Promise.allSettled([loadBots(), loadAliases(), loadServerInfo()]);
+    await Promise.allSettled([loadBots(), loadAliases(), loadHistory(), loadServerInfo()]);
     updateRecipientDropdown();
   }
 
@@ -717,6 +724,7 @@
       }
 
       const delivery = res.data;
+      loadHistory();
       resultBox.className = 'delivery-result success';
       resultBox.innerHTML = `
         <div class="delivery-header">
@@ -839,6 +847,187 @@
       });
     });
   });
+
+  // DELIVERY HISTORY MANAGEMENT
+  async function loadHistory() {
+    const listEl = document.getElementById('history-list');
+    try {
+      const res = await apiCall('/history');
+      historyList = res.data || [];
+      const countEl = document.getElementById('tab-history-count');
+      if (countEl) countEl.textContent = String(historyList.length);
+      if (res.retentionDays) {
+        historyRetentionDays = res.retentionDays;
+        const retEl = document.getElementById('history-retention-text');
+        if (retEl) retEl.textContent = String(res.retentionDays);
+      }
+      renderHistory();
+    } catch (err) {
+      if (listEl) {
+        listEl.innerHTML = `<div class="empty-state text-danger">Failed to load history: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+  }
+
+  function renderHistory() {
+    const listEl = document.getElementById('history-list');
+    if (!listEl) return;
+
+    const typeFilter = (document.getElementById('history-type-filter').value || '').toLowerCase();
+    const search = (document.getElementById('history-search-input').value || '').toLowerCase().trim();
+
+    const filtered = historyList.filter((item) => {
+      if (typeFilter && item.messageType !== typeFilter) return false;
+      if (search) {
+        const matchBot = (item.bot || '').toLowerCase().includes(search);
+        const matchRcpt = (item.recipient || '').toLowerCase().includes(search);
+        const matchChat = (item.chatId || '').toLowerCase().includes(search);
+        const matchSummary = (item.summary || '').toLowerCase().includes(search);
+        if (!matchBot && !matchRcpt && !matchChat && !matchSummary) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = `
+        <div class="empty-state">
+          ${historyList.length === 0 ? 'No message delivery history yet.' : 'No history matches the selected filters.'}
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map((item) => {
+      let timeStr = item.createdAt || '';
+      try {
+        const d = new Date(item.createdAt);
+        if (!isNaN(d.getTime())) {
+          timeStr = d.toLocaleString();
+        }
+      } catch (_) {}
+
+      return `
+        <div class="item-row history-item-row" data-id="${item.id}">
+          <div class="item-main flex-1">
+            <div class="item-title-row">
+              <span class="badge badge-success text-xs">${escapeHtml(item.status || 'delivered')}</span>
+              <span class="badge badge-subtle text-xs code-font">${escapeHtml(item.messageType)}</span>
+              <span class="item-title code-font">@${escapeHtml(item.bot)}</span>
+              <span class="text-muted text-xs">&rarr;</span>
+              <span class="code-font text-xs">${escapeHtml(item.recipient)}</span>
+              ${item.messageThreadId ? `<span class="badge badge-subtle text-xs">#${item.messageThreadId}</span>` : ''}
+            </div>
+            <div class="history-summary">
+              ${escapeHtml(item.summary || '')}
+            </div>
+            <div class="item-subtitle text-xs text-muted" style="margin-top: 4px;">
+              <span>${escapeHtml(timeStr)}</span>
+              ${item.messageId ? ` &bull; Msg ID: <span class="code-font">${item.messageId}</span>` : ''}
+              ${item.chatId !== item.recipient ? ` &bull; Chat: <span class="code-font">${escapeHtml(item.chatId)}</span>` : ''}
+            </div>
+          </div>
+          <div class="item-actions">
+            <button type="button" class="btn btn-sm btn-subtle btn-history-detail" data-id="${item.id}" title="View delivery payload">
+              Details
+            </button>
+            <button type="button" class="btn btn-sm btn-danger btn-history-delete" data-id="${item.id}" title="Delete record">
+              &times;
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Row event listeners
+    listEl.querySelectorAll('.btn-history-detail').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.getAttribute('data-id'), 10);
+        const entry = historyList.find((h) => h.id === id);
+        if (!entry) return;
+
+        document.getElementById('hist-detail-id').textContent = String(entry.id);
+        document.getElementById('hist-detail-time').textContent = entry.createdAt || '-';
+        document.getElementById('hist-detail-bot').textContent = '@' + entry.bot;
+        document.getElementById('hist-detail-rcpt').textContent = entry.recipient;
+        document.getElementById('hist-detail-chat').textContent = entry.chatId;
+        document.getElementById('hist-detail-type').textContent = entry.messageType;
+        document.getElementById('hist-detail-status').textContent = entry.status;
+        document.getElementById('hist-detail-msgid').textContent = entry.messageId ? String(entry.messageId) : '-';
+        document.getElementById('hist-detail-summary').textContent = entry.summary || '-';
+
+        let payloadFormatted = '{}';
+        if (entry.payload) {
+          try {
+            const p = typeof entry.payload === 'string' ? JSON.parse(entry.payload) : entry.payload;
+            payloadFormatted = JSON.stringify(p, null, 2);
+          } catch (_) {
+            payloadFormatted = String(entry.payload);
+          }
+        }
+        document.getElementById('hist-detail-payload').textContent = payloadFormatted;
+        if (typeof modalHistoryDetail.showModal === 'function') {
+          modalHistoryDetail.showModal();
+        }
+      });
+    });
+
+    listEl.querySelectorAll('.btn-history-delete').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        try {
+          await apiCall(`/history/${id}`, { method: 'DELETE' });
+          showAlert(`History record #${id} removed.`);
+          loadHistory();
+        } catch (err) {
+          showAlert(err.message, true);
+        }
+      });
+    });
+  }
+
+  // History Controls Listeners
+  const btnRefreshHistory = document.getElementById('btn-refresh-history');
+  if (btnRefreshHistory) {
+    btnRefreshHistory.addEventListener('click', () => {
+      loadHistory();
+    });
+  }
+
+  const btnClearHistory = document.getElementById('btn-clear-history');
+  if (btnClearHistory) {
+    btnClearHistory.addEventListener('click', async () => {
+      if (!confirm('Clear all message delivery history?')) return;
+      try {
+        await apiCall('/history', { method: 'DELETE' });
+        showAlert('All message delivery history cleared.');
+        loadHistory();
+      } catch (err) {
+        showAlert(err.message, true);
+      }
+    });
+  }
+
+  const historyTypeFilter = document.getElementById('history-type-filter');
+  if (historyTypeFilter) {
+    historyTypeFilter.addEventListener('change', () => {
+      renderHistory();
+    });
+  }
+
+  const historySearchInput = document.getElementById('history-search-input');
+  if (historySearchInput) {
+    historySearchInput.addEventListener('input', () => {
+      renderHistory();
+    });
+  }
+
+  const closeDetailBtn = document.getElementById('close-history-detail');
+  if (closeDetailBtn) {
+    closeDetailBtn.addEventListener('click', () => modalHistoryDetail.close());
+  }
+  const closeDetailBtn2 = document.getElementById('close-history-detail-btn');
+  if (closeDetailBtn2) {
+    closeDetailBtn2.addEventListener('click', () => modalHistoryDetail.close());
+  }
 
   // Utility
   function escapeHtml(str) {

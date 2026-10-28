@@ -348,3 +348,55 @@ func TestAppUpdateBot(t *testing.T) {
 	}
 }
 
+func TestAppDeliveryHistory(t *testing.T) {
+	a, _ := testutil.NewApp(t)
+	ctx := context.Background()
+
+	_, err := a.RegisterBot(ctx, "bot_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alias, err := a.Aliases.Create(store.AliasInput{Name: "alerts", ChatID: "-100555"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = a.Send(ctx, app.SendRequest{
+		Type:    "text",
+		To:      alias.Name,
+		Payload: map[string]any{"text": "disk full warning"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := a.History.List(store.HistoryFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(entries))
+	}
+	e := entries[0]
+	if e.Bot != "default_bot" {
+		t.Fatalf("expected bot default_bot, got %s", e.Bot)
+	}
+	if e.Recipient != "alerts" {
+		t.Fatalf("expected recipient alerts, got %s", e.Recipient)
+	}
+	if e.ChatID != "-100555" {
+		t.Fatalf("expected chat_id -100555, got %s", e.ChatID)
+	}
+	if e.MessageType != "text" {
+		t.Fatalf("expected type text, got %s", e.MessageType)
+	}
+	if e.Summary != "disk full warning" {
+		t.Fatalf("expected summary disk full warning, got %s", e.Summary)
+	}
+	if e.Status != "delivered" {
+		t.Fatalf("expected status delivered, got %s", e.Status)
+	}
+}
+
+

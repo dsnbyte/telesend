@@ -927,3 +927,54 @@ textarea {
 [data-theme="dark"] .icon-moon { display: none; }
 [data-theme="light"] .icon-sun { display: none; }
 [data-theme="light"] .icon-moon { display: block; }
+
+/* History Styles */
+.header-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.history-filter-bar .form-select,
+.history-filter-bar .form-input {
+  padding: 6px 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.history-filter-bar .flex-1 { flex: 1; }
+.history-filter-bar .flex-2 { flex: 2; }
+
+.history-item-row {
+  align-items: flex-start;
+}
+
+.history-summary {
+  font-size: 12px;
+  color: var(--text);
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.payload-pre {
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+

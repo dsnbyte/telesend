@@ -195,6 +195,28 @@ func (s *Server) routeAPI(w http.ResponseWriter, r *http.Request, path string) e
 		return s.handleSend(w, r)
 	}
 
+	// History
+	if path == "/history" {
+		switch r.Method {
+		case http.MethodGet:
+			return s.handleListHistory(w, r)
+		case http.MethodDelete:
+			return s.handleClearHistory(w, r)
+		}
+	}
+
+	if strings.HasPrefix(path, "/history/") {
+		idStr := strings.TrimPrefix(path, "/history/")
+		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil && id > 0 {
+			switch r.Method {
+			case http.MethodGet:
+				return s.handleGetHistory(w, r, id)
+			case http.MethodDelete:
+				return s.handleDeleteHistory(w, r, id)
+			}
+		}
+	}
+
 	return apperr.New(apperr.NotFound, "Endpoint not found")
 }
 
@@ -289,10 +311,14 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) error {
 		aliases = []store.Alias{}
 	}
 
+	histCount, _ := s.app.History.Count()
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version": version.Version,
-		"bots":    bots,
-		"aliases": aliases,
+		"version":              version.Version,
+		"bots":                 bots,
+		"aliases":              aliases,
+		"historyCount":         histCount,
+		"historyRetentionDays": s.app.History.RetentionDays(),
 	})
 	return nil
 }
@@ -333,6 +359,68 @@ func (s *Server) handleServerInfo(w http.ResponseWriter, r *http.Request) error 
 		"catalog":        catalog,
 		"mcpTools":       mcpTools,
 	})
+	return nil
+}
+
+// History Handlers
+
+func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) error {
+	q := r.URL.Query()
+	var limit int
+	if l := q.Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	entries, err := s.app.History.List(store.HistoryFilter{
+		Limit:       limit,
+		MessageType: q.Get("type"),
+		Bot:         q.Get("bot"),
+		Recipient:   q.Get("recipient"),
+	})
+	if err != nil {
+		return err
+	}
+	if entries == nil {
+		entries = []store.HistoryEntry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data":          entries,
+		"retentionDays": s.app.History.RetentionDays(),
+	})
+	return nil
+}
+
+func (s *Server) handleGetHistory(w http.ResponseWriter, r *http.Request, id int64) error {
+	entry, err := s.app.History.Get(id)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
+		return apperr.Newf(apperr.NotFound, "History entry %d was not found", id)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": entry})
+	return nil
+}
+
+func (s *Server) handleDeleteHistory(w http.ResponseWriter, r *http.Request, id int64) error {
+	deleted, err := s.app.History.Delete(id)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return apperr.Newf(apperr.NotFound, "History entry %d was not found", id)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id, "deleted": true}})
+	return nil
+}
+
+func (s *Server) handleClearHistory(w http.ResponseWriter, r *http.Request) error {
+	deleted, err := s.app.History.Clear()
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"deleted": deleted}})
 	return nil
 }
 

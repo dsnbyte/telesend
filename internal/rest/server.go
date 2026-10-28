@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/dsnbyte/telesend/internal/app"
@@ -236,6 +237,69 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) error {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": res})
 		return nil
+	}
+
+	// History
+	if path == "/history" || path == "/messages/history" {
+		switch method {
+		case http.MethodGet:
+			q := r.URL.Query()
+			var limit int
+			if l := q.Get("limit"); l != "" {
+				if n, err := strconv.Atoi(l); err == nil && n > 0 {
+					limit = n
+				}
+			}
+			entries, err := s.app.History.List(store.HistoryFilter{
+				Limit:       limit,
+				MessageType: q.Get("type"),
+				Bot:         q.Get("bot"),
+				Recipient:   q.Get("recipient"),
+			})
+			if err != nil {
+				return err
+			}
+			if entries == nil {
+				entries = []store.HistoryEntry{}
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"data": entries})
+			return nil
+		case http.MethodDelete:
+			deleted, err := s.app.History.Clear()
+			if err != nil {
+				return err
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"deleted": deleted}})
+			return nil
+		}
+	}
+
+	if strings.HasPrefix(path, "/history/") {
+		idStr := path[len("/history/"):]
+		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil && id > 0 {
+			switch method {
+			case http.MethodGet:
+				entry, err := s.app.History.Get(id)
+				if err != nil {
+					return err
+				}
+				if entry == nil {
+					return apperr.Newf(apperr.NotFound, "History entry %d was not found", id)
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"data": entry})
+				return nil
+			case http.MethodDelete:
+				deleted, err := s.app.History.Delete(id)
+				if err != nil {
+					return err
+				}
+				if !deleted {
+					return apperr.Newf(apperr.NotFound, "History entry %d was not found", id)
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id, "deleted": true}})
+				return nil
+			}
+		}
 	}
 
 	return apperr.New(apperr.NotFound, "Endpoint not found")

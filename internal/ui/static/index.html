@@ -51,6 +51,9 @@
       <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="send">
         Send
       </button>
+      <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="history">
+        History <span id="tab-history-count" class="tab-count">0</span>
+      </button>
       <button type="button" role="tab" aria-selected="false" class="nav-item" data-tab="server">
         Server & MCP
       </button>
@@ -336,6 +339,48 @@
           <div id="send-result-box" class="delivery-result hidden">
             <!-- Populated by JS on send -->
           </div>
+        </div>
+      </section>
+
+      <!-- PANEL: HISTORY -->
+      <section id="panel-history" class="tab-panel" role="tabpanel" aria-labelledby="tab-history">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Delivery History</h2>
+            <p class="section-sub">Log of sent Telegram messages (retained for <span id="history-retention-text">7</span> days)</p>
+          </div>
+          <div class="header-btn-group">
+            <button type="button" id="btn-refresh-history" class="btn btn-sm btn-subtle" title="Refresh history">
+              Refresh
+            </button>
+            <button type="button" id="btn-clear-history" class="btn btn-sm btn-danger" title="Clear all history">
+              Clear History
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="history-filter-bar mb-3">
+          <select id="history-type-filter" class="form-select flex-1" aria-label="Filter by type">
+            <option value="">All message types</option>
+            <option value="text">text</option>
+            <option value="photo">photo</option>
+            <option value="document">document</option>
+            <option value="location">location</option>
+            <option value="poll">poll</option>
+            <option value="dice">dice</option>
+            <option value="audio">audio</option>
+            <option value="video">video</option>
+            <option value="animation">animation</option>
+            <option value="voice">voice</option>
+            <option value="media_group">media_group</option>
+          </select>
+          <input type="text" id="history-search-input" class="form-input flex-2" placeholder="Search recipient, bot, text..." aria-label="Search history">
+        </div>
+
+        <!-- History List -->
+        <div id="history-list" class="item-list">
+          <div class="empty-state">Loading history...</div>
         </div>
       </section>
 
@@ -661,6 +706,63 @@
           <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
       </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: HISTORY DETAIL -->
+  <dialog id="modal-history-detail" class="app-modal" aria-labelledby="history-detail-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="history-detail-title" class="modal-title">Delivery Details</h2>
+        <button type="button" class="btn-close" id="close-history-detail" aria-label="Close">&times;</button>
+      </div>
+      <div class="history-detail-content">
+        <div class="meta-grid mb-3">
+          <div class="meta-item">
+            <span class="meta-label">ID</span>
+            <span id="hist-detail-id" class="meta-val code-font">...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Time</span>
+            <span id="hist-detail-time" class="meta-val code-font">...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Bot</span>
+            <span id="hist-detail-bot" class="meta-val code-font">...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Recipient</span>
+            <span id="hist-detail-rcpt" class="meta-val code-font">...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Chat ID</span>
+            <span id="hist-detail-chat" class="meta-val code-font">...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Type</span>
+            <span id="hist-detail-type" class="meta-val code-font">...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Status</span>
+            <span id="hist-detail-status" class="meta-val code-font">...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Message ID</span>
+            <span id="hist-detail-msgid" class="meta-val code-font">...</span>
+          </div>
+        </div>
+        <div class="form-group mb-3">
+          <label>Summary</label>
+          <div id="hist-detail-summary" class="item-subtitle text-muted"></div>
+        </div>
+        <div class="form-group">
+          <label>Payload JSON</label>
+          <pre id="hist-detail-payload" class="code-font payload-pre"></pre>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-subtle" id="close-history-detail-btn">Close</button>
+      </div>
     </div>
   </dialog>
 

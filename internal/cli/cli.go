@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dsnbyte/telesend/internal/app"
 	"github.com/dsnbyte/telesend/internal/apperr"
@@ -74,6 +75,8 @@ func dispatch(ctx context.Context, args []string, a *app.App, ioStreams IO, json
 		return runAlias(args[1:], a, ioStreams, jsonMode)
 	case "msg", "message":
 		return runMsg(ctx, args[1:], a, ioStreams, jsonMode)
+	case "history":
+		return runHistory(ctx, args[1:], a, ioStreams, jsonMode)
 	case "serve":
 		return runServe(ctx, args[1:], a, ioStreams)
 	case "mcp":
@@ -483,6 +486,133 @@ func parseMediaArg(val string) map[string]any {
 	return map[string]any{"source": "path", "value": val}
 }
 
+func runHistory(ctx context.Context, args []string, a *app.App, ioStreams IO, jsonMode bool) error {
+	action := "list"
+	var restArgs []string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		action = args[0]
+		restArgs = args[1:]
+	} else {
+		restArgs = args
+	}
+
+	switch action {
+	case "list":
+		var limit int = 50
+		var msgType, bot, recipient string
+
+		for i := 0; i < len(restArgs); i++ {
+			arg := restArgs[i]
+			switch {
+			case arg == "--limit" && i+1 < len(restArgs):
+				i++
+				n, err := strconv.Atoi(restArgs[i])
+				if err != nil || n <= 0 {
+					return apperr.New(apperr.Validation, "--limit must be a positive integer")
+				}
+				limit = n
+			case strings.HasPrefix(arg, "--limit="):
+				n, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+				if err != nil || n <= 0 {
+					return apperr.New(apperr.Validation, "--limit must be a positive integer")
+				}
+				limit = n
+			case arg == "--type" && i+1 < len(restArgs):
+				i++
+				msgType = restArgs[i]
+			case strings.HasPrefix(arg, "--type="):
+				msgType = strings.TrimPrefix(arg, "--type=")
+			case arg == "--bot" && i+1 < len(restArgs):
+				i++
+				bot = restArgs[i]
+			case strings.HasPrefix(arg, "--bot="):
+				bot = strings.TrimPrefix(arg, "--bot=")
+			case (arg == "--to" || arg == "--recipient") && i+1 < len(restArgs):
+				i++
+				recipient = restArgs[i]
+			case strings.HasPrefix(arg, "--to="):
+				recipient = strings.TrimPrefix(arg, "--to=")
+			case strings.HasPrefix(arg, "--recipient="):
+				recipient = strings.TrimPrefix(arg, "--recipient=")
+			case strings.HasPrefix(arg, "-"):
+				return apperr.Newf(apperr.Validation, "Unknown flag: %s", arg)
+			default:
+				return apperr.Newf(apperr.Validation, "Unexpected argument: %s", arg)
+			}
+		}
+
+		entries, err := a.History.List(store.HistoryFilter{
+			Limit:       limit,
+			MessageType: msgType,
+			Bot:         bot,
+			Recipient:   recipient,
+		})
+		if err != nil {
+			return err
+		}
+		if jsonMode {
+			if entries == nil {
+				entries = []store.HistoryEntry{}
+			}
+			fmt.Fprintln(ioStreams.Out, string(jsonx.MarshalIndent(entries)))
+			return nil
+		}
+		if len(entries) == 0 {
+			fmt.Fprintln(ioStreams.Out, "No message delivery history.")
+			return nil
+		}
+		rows := make([][]string, len(entries))
+		for i, e := range entries {
+			summary := e.Summary
+			if len(summary) > 40 {
+				summary = summary[:37] + "..."
+			}
+			tStr := e.CreatedAt
+			if t, err := time.Parse("2006-01-02T15:04:05.000Z", e.CreatedAt); err == nil {
+				tStr = t.Format("2006-01-02 15:04:05")
+			}
+			rows[i] = []string{
+				strconv.FormatInt(e.ID, 10),
+				tStr,
+				e.MessageType,
+				"@" + e.Bot,
+				e.Recipient,
+				summary,
+				e.Status,
+			}
+		}
+		fmt.Fprintln(ioStreams.Out, formatTable([]string{"ID", "TIME", "TYPE", "BOT", "RECIPIENT", "SUMMARY", "STATUS"}, rows))
+		return nil
+
+	case "clear":
+		deleted, err := a.History.Clear()
+		if err != nil {
+			return err
+		}
+		if jsonMode {
+			fmt.Fprintln(ioStreams.Out, string(jsonx.MarshalIndent(map[string]any{"cleared": deleted})))
+			return nil
+		}
+		fmt.Fprintf(ioStreams.Out, "Cleared %d history records.\n", deleted)
+		return nil
+
+	case "prune":
+		pruned, err := a.History.Prune(time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if jsonMode {
+			fmt.Fprintln(ioStreams.Out, string(jsonx.MarshalIndent(map[string]any{"pruned": pruned})))
+			return nil
+		}
+		fmt.Fprintf(ioStreams.Out, "Pruned %d expired history records (retention: %d days).\n", pruned, a.History.RetentionDays())
+		return nil
+
+	default:
+		return apperr.Newf(apperr.Validation, "Usage: telesend history [list|clear|prune]")
+	}
+}
+
 func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
 	noMCP := false
 	noREST := false
@@ -697,12 +827,13 @@ func isMCPPath(p string) bool {
 
 func isRESTPath(p string) bool {
 	switch p {
-	case "/health", "/bots", "/aliases", "/messages":
+	case "/health", "/bots", "/aliases", "/messages", "/history":
 		return true
 	}
 	return strings.HasPrefix(p, "/bots/") ||
 		strings.HasPrefix(p, "/aliases/") ||
-		strings.HasPrefix(p, "/messages/")
+		strings.HasPrefix(p, "/messages/") ||
+		strings.HasPrefix(p, "/history/")
 }
 
 func runMCP(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
@@ -950,6 +1081,7 @@ Usage:
   telesend [--json] alias list [group|private]
   telesend [--json] alias update|remove
   telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
+  telesend [--json] history [list|clear|prune] [--limit <n>] [--type <type>] [--bot <username>]
   telesend serve [--host <host>] [--port <port>] [--no-mcp] [--no-rest] [--no-ui]
   telesend mcp [--config <path>] [--allow-path <path> ...]
   telesend hash-key

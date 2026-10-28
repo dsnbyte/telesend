@@ -97,6 +97,22 @@ var migrations = []string{
     );
     CREATE INDEX ui_sessions_expiry ON ui_sessions(expires_at);
   `,
+	`
+    CREATE TABLE message_history (
+      id INTEGER PRIMARY KEY,
+      bot TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      recipient TEXT NOT NULL,
+      message_thread_id INTEGER NULL,
+      message_type TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      message_id INTEGER NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX message_history_created_at ON message_history(created_at);
+  `,
 }
 
 // Open opens (creating if needed) the database at path. Use ":memory:" for an

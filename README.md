@@ -166,6 +166,13 @@ telesend alias list group       # list only group aliases
 telesend alias list private     # list only private aliases
 telesend alias update ops --name incidents --chat-id -1001234567890 --thread-id 99
 telesend alias remove incidents
+
+# View delivery history (table or JSON)
+telesend history
+telesend history list --limit 20 --type text
+telesend history --json
+telesend history prune          # manually prune records older than retention period
+telesend history clear          # clear all delivery history
 ```
 
 The `telesend alias list` command prints an alias table with a **TYPE** column classifying each alias as `group` (negative chat IDs, including supergroups and channels) or `private`. It accepts an optional `group` or `private` filter argument to list only matching aliases:
@@ -339,6 +346,8 @@ Every request requires `x-api-key`.
 | `GET\|POST` | `/aliases` | List or add aliases |
 | `PATCH\|DELETE` | `/aliases/:name` | Update or remove alias |
 | `POST` | `/messages/:type` | Send a message |
+| `GET\|DELETE` | `/history` | List or clear delivery history |
+| `GET\|DELETE` | `/history/:id` | Get or delete specific history entry |
 
 ### Examples
 

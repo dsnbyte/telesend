@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/dsnbyte/telesend/internal/rest"
@@ -174,5 +175,63 @@ func TestRESTServer(t *testing.T) {
 	if uploadRes.StatusCode != 200 {
 		body, _ := io.ReadAll(uploadRes.Body)
 		t.Fatalf("upload photo: %d %s", uploadRes.StatusCode, string(body))
+	}
+
+	// 7. History endpoints
+	histRes := req(http.MethodGet, "/history", nil, "")
+	if histRes.StatusCode != 200 {
+		t.Fatalf("get history: %d", histRes.StatusCode)
+	}
+	var histData struct {
+		Data []store.HistoryEntry `json:"data"`
+	}
+	json.NewDecoder(histRes.Body).Decode(&histData)
+	if len(histData.Data) < 4 {
+		t.Fatalf("expected at least 4 history entries, got %d", len(histData.Data))
+	}
+
+	// Filter by type
+	photoHistRes := req(http.MethodGet, "/history?type=photo", nil, "")
+	if photoHistRes.StatusCode != 200 {
+		t.Fatalf("get photo history: %d", photoHistRes.StatusCode)
+	}
+	var photoHistData struct {
+		Data []store.HistoryEntry `json:"data"`
+	}
+	json.NewDecoder(photoHistRes.Body).Decode(&photoHistData)
+	if len(photoHistData.Data) != 1 || photoHistData.Data[0].MessageType != "photo" {
+		t.Fatalf("expected 1 photo history entry, got %+v", photoHistData.Data)
+	}
+
+	// Get single entry
+	firstID := histData.Data[0].ID
+	singleRes := req(http.MethodGet, "/history/"+strconv.FormatInt(firstID, 10), nil, "")
+	if singleRes.StatusCode != 200 {
+		t.Fatalf("get single history: %d", singleRes.StatusCode)
+	}
+
+	// Delete single entry
+	delSingleRes := req(http.MethodDelete, "/history/"+strconv.FormatInt(firstID, 10), nil, "")
+	if delSingleRes.StatusCode != 200 {
+		t.Fatalf("delete single history: %d", delSingleRes.StatusCode)
+	}
+
+	// Clear all history
+	clearRes := req(http.MethodDelete, "/history", nil, "")
+	if clearRes.StatusCode != 200 {
+		t.Fatalf("clear history: %d", clearRes.StatusCode)
+	}
+
+	// Verify empty
+	emptyRes := req(http.MethodGet, "/history", nil, "")
+	if emptyRes.StatusCode != 200 {
+		t.Fatalf("get empty history: %d", emptyRes.StatusCode)
+	}
+	var emptyData struct {
+		Data []store.HistoryEntry `json:"data"`
+	}
+	json.NewDecoder(emptyRes.Body).Decode(&emptyData)
+	if len(emptyData.Data) != 0 {
+		t.Fatalf("expected 0 entries after clear, got %d", len(emptyData.Data))
 	}
 }
