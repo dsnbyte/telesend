@@ -12,8 +12,8 @@
     <!-- Header -->
     <header class="app-header">
       <div class="brand">
-        <img src="/icon.png" alt="Telesend" class="brand-icon" width="20" height="20">
-        <span class="brand-title">telesend</span>
+        <img src="/icon.png" alt="Telesend" class="brand-icon" width="28" height="28">
+        <span class="brand-title">Telesend</span>
         <span id="app-version" class="badge badge-subtle">v...</span>
         <span class="status-indicator" title="Connected to Telesend Core">
           <span class="status-dot"></span>
@@ -75,32 +75,10 @@
         <div class="section-header">
           <div>
             <h2 class="section-title">Registered Bots</h2>
-            <p class="section-sub">Telegram bots authorized for delivery</p>
           </div>
           <button type="button" id="toggle-add-bot-btn" class="btn btn-sm btn-primary">
             + Add Bot
           </button>
-        </div>
-
-        <!-- Add Bot Form (Collapsible) -->
-        <div id="add-bot-card" class="panel-card form-card hidden">
-          <div class="card-header">
-            <span class="card-title">Add Telegram Bot</span>
-            <button type="button" id="cancel-add-bot" class="btn-close" aria-label="Cancel">&times;</button>
-          </div>
-          <form id="form-add-bot" autocomplete="off">
-            <div class="form-group">
-              <label for="bot-token-input">Bot Token</label>
-              <div class="input-with-action">
-                <input type="password" id="bot-token-input" required spellcheck="false" placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz" autocomplete="off">
-                <button type="button" class="btn-toggle-mask" data-target="bot-token-input" aria-label="Toggle token visibility">show</button>
-              </div>
-              <p class="form-hint">Obtain a token from <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> on Telegram.</p>
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary btn-sm">Verify & Add Bot</button>
-            </div>
-          </form>
         </div>
 
         <!-- Bot List -->
@@ -115,7 +93,6 @@
         <div class="section-header">
           <div>
             <h2 class="section-title">Recipient Aliases</h2>
-            <p class="section-sub">Named shortcuts for chat IDs and topics</p>
           </div>
           <button type="button" id="toggle-add-alias-btn" class="btn btn-sm btn-primary">
             + Add Alias
@@ -132,33 +109,6 @@
           <span id="alias-filter-count" class="text-muted text-xs">0 aliases</span>
         </div>
 
-        <!-- Add Alias Form (Collapsible) -->
-        <div id="add-alias-card" class="panel-card form-card hidden">
-          <div class="card-header">
-            <span class="card-title">Add Recipient Alias</span>
-            <button type="button" id="cancel-add-alias" class="btn-close" aria-label="Cancel">&times;</button>
-          </div>
-          <form id="form-add-alias" autocomplete="off">
-            <div class="form-group">
-              <label for="alias-name-input">Alias Name</label>
-              <input type="text" id="alias-name-input" required spellcheck="false" placeholder="e.g. dev-alerts or alice">
-              <p class="form-hint">Letters, numbers, spaces, dot, dash, or underscore.</p>
-            </div>
-            <div class="form-group">
-              <label for="alias-chat-id-input">Chat ID</label>
-              <input type="text" id="alias-chat-id-input" required spellcheck="false" placeholder="e.g. -100123456789 or 12345678">
-              <p class="form-hint">Signed decimal integer (negative for groups/channels).</p>
-            </div>
-            <div class="form-group">
-              <label for="alias-thread-id-input">Thread ID <span class="text-muted font-normal">(optional forum topic)</span></label>
-              <input type="number" id="alias-thread-id-input" min="1" step="1" placeholder="e.g. 42">
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary btn-sm">Save Alias</button>
-            </div>
-          </form>
-        </div>
-
         <!-- Alias List -->
         <div id="alias-list" class="item-list">
           <div class="empty-state">Loading aliases...</div>
@@ -170,7 +120,6 @@
         <div class="section-header">
           <div>
             <h2 class="section-title">Send Message</h2>
-            <p class="section-sub">Deliver messages directly via Telegram Bot API</p>
           </div>
         </div>
 
@@ -347,7 +296,6 @@
         <div class="section-header">
           <div>
             <h2 class="section-title">Delivery History</h2>
-            <p class="section-sub">Log of sent Telegram messages (retained for <span id="history-retention-text">7</span> days)</p>
           </div>
           <div class="header-btn-group">
             <button type="button" id="btn-refresh-history" class="btn btn-sm btn-subtle" title="Refresh history">
@@ -396,7 +344,6 @@
         <div class="section-header">
           <div>
             <h2 class="section-title">Server & MCP Status</h2>
-            <p class="section-sub">Runtime connectivity, endpoints, and tool interfaces</p>
           </div>
         </div>
 
@@ -498,7 +445,6 @@
         <div class="section-header">
           <div>
             <h2 class="section-title">CLI Utilities & Reference</h2>
-            <p class="section-sub">Security hash generation and CLI command quick-reference</p>
           </div>
         </div>
 
@@ -620,11 +566,6 @@
         </div>
       </section>
     </main>
-
-    <!-- Footer -->
-    <footer class="app-footer">
-      <span>Telesend self-hosted Telegram gateway</span>
-    </footer>
   </div>
 
   <!-- MODAL: LOGIN -->
@@ -648,6 +589,31 @@
         <div id="login-error" class="form-error hidden"></div>
         <div class="modal-actions">
           <button type="submit" class="btn btn-primary w-full">Unlock Interface</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: ADD BOT -->
+  <dialog id="modal-add-bot" class="app-modal" aria-labelledby="add-bot-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="add-bot-title" class="modal-title">Add Telegram Bot</h2>
+        <button type="button" class="btn-close" id="close-add-bot" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-add-bot" autocomplete="off">
+        <div class="form-group">
+          <label for="bot-token-input">Bot Token</label>
+          <div class="input-with-action">
+            <input type="password" id="bot-token-input" required spellcheck="false" placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz" autocomplete="off">
+            <button type="button" class="btn-toggle-mask" data-target="bot-token-input" aria-label="Toggle token visibility">show</button>
+          </div>
+          <p class="form-hint">Obtain a token from <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> on Telegram.</p>
+        </div>
+        <div id="add-bot-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-add-bot">Cancel</button>
+          <button type="submit" class="btn btn-primary">Verify & Add Bot</button>
         </div>
       </form>
     </div>
@@ -686,6 +652,37 @@
     </div>
   </dialog>
 
+  <!-- MODAL: ADD ALIAS -->
+  <dialog id="modal-add-alias" class="app-modal" aria-labelledby="add-alias-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="add-alias-title" class="modal-title">Add Recipient Alias</h2>
+        <button type="button" class="btn-close" id="close-add-alias" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-add-alias" autocomplete="off">
+        <div class="form-group">
+          <label for="alias-name-input">Alias Name</label>
+          <input type="text" id="alias-name-input" required spellcheck="false" placeholder="e.g. dev-alerts or alice">
+          <p class="form-hint">Letters, numbers, spaces, dot, dash, or underscore.</p>
+        </div>
+        <div class="form-group">
+          <label for="alias-chat-id-input">Chat ID</label>
+          <input type="text" id="alias-chat-id-input" required spellcheck="false" placeholder="e.g. -100123456789 or 12345678">
+          <p class="form-hint">Signed decimal integer (negative for groups/channels).</p>
+        </div>
+        <div class="form-group">
+          <label for="alias-thread-id-input">Thread ID <span class="text-muted font-normal">(optional forum topic)</span></label>
+          <input type="number" id="alias-thread-id-input" min="1" step="1" placeholder="e.g. 42">
+        </div>
+        <div id="add-alias-error" class="form-error hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-add-alias">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Alias</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
   <!-- MODAL: EDIT ALIAS -->
   <dialog id="modal-edit-alias" class="app-modal" aria-labelledby="edit-alias-title" closedby="any">
     <div class="modal-card">
@@ -716,8 +713,26 @@
     </div>
   </dialog>
 
+  <!-- MODAL: CONFIRM ACTION (Reusable) -->
+  <dialog id="modal-confirm" class="app-modal" aria-labelledby="confirm-modal-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="confirm-modal-title" class="modal-title">Confirm Action</h2>
+        <button type="button" class="btn-close" id="close-confirm-modal" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-confirm-modal">
+        <p id="confirm-modal-prompt" class="modal-prompt mb-3">Are you sure?</p>
+        <div id="confirm-modal-error" class="form-error hidden mb-3"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-confirm-modal" autofocus>Cancel</button>
+          <button type="submit" class="btn btn-danger" id="submit-confirm-modal">Delete</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
   <!-- MODAL: HISTORY DETAIL -->
-  <dialog id="modal-history-detail" class="app-modal" aria-labelledby="history-detail-title" closedby="any">
+  <dialog id="modal-history-detail" class="app-modal modal-lg" aria-labelledby="history-detail-title" closedby="any">
     <div class="modal-card">
       <div class="modal-header">
         <h2 id="history-detail-title" class="modal-title">Delivery Details</h2>
@@ -758,12 +773,24 @@
             <span id="hist-detail-msgid" class="meta-val code-font">...</span>
           </div>
         </div>
-        <div class="form-group mb-3">
-          <label>Summary</label>
-          <div id="hist-detail-summary" class="item-subtitle text-muted"></div>
+
+        <!-- Detail Tabs -->
+        <div class="detail-tabs-segment" role="tablist">
+          <button type="button" id="tab-btn-detail-preview" class="detail-tab-btn active" data-tab-target="preview">
+            Preview
+          </button>
+          <button type="button" id="tab-btn-detail-payload" class="detail-tab-btn" data-tab-target="payload">
+            Payload
+          </button>
         </div>
-        <div class="form-group">
-          <label>Payload JSON</label>
+
+        <!-- Tab: Preview -->
+        <div id="detail-pane-preview" class="detail-pane active">
+          <div id="hist-detail-preview" class="tg-bubble-container"></div>
+        </div>
+
+        <!-- Tab: Payload -->
+        <div id="detail-pane-payload" class="detail-pane hidden">
           <pre id="hist-detail-payload" class="code-font payload-pre"></pre>
         </div>
       </div>

@@ -53,8 +53,30 @@ func TestStaticAssets(t *testing.T) {
 		t.Fatalf("expected 200 for /, got %d", res.StatusCode)
 	}
 	body, _ := io.ReadAll(res.Body)
-	if !strings.Contains(string(body), "telesend") || !strings.Contains(string(body), "app.css") {
-		t.Fatalf("unexpected HTML content: %s", string(body)[:200])
+	htmlContent := string(body)
+	if !strings.Contains(htmlContent, "<span class=\"brand-title\">Telesend</span>") {
+		t.Fatal("expected brand title 'Telesend' with uppercase first letter")
+	}
+	if !strings.Contains(htmlContent, "width=\"28\" height=\"28\"") {
+		t.Fatal("expected brand icon logo enlarged to width 28 height 28")
+	}
+	if strings.Contains(htmlContent, "section-sub") {
+		t.Fatal("expected tagline/description below page titles to be removed")
+	}
+	if strings.Contains(htmlContent, "Telesend self-hosted Telegram gateway") {
+		t.Fatal("expected footer 'Telesend self-hosted Telegram gateway' to be removed")
+	}
+	if !strings.Contains(htmlContent, "modal-add-bot") || !strings.Contains(htmlContent, "modal-add-alias") {
+		t.Fatal("expected modal dialogs for add bot and add alias")
+	}
+	if !strings.Contains(htmlContent, "modal-confirm") {
+		t.Fatal("expected reusable confirm modal dialog")
+	}
+	if !strings.Contains(htmlContent, "tab-btn-detail-preview") || !strings.Contains(htmlContent, "tab-btn-detail-payload") {
+		t.Fatal("expected Preview and Payload tabs in Delivery Details modal")
+	}
+	if !strings.Contains(htmlContent, "hist-detail-preview") {
+		t.Fatal("expected message preview container in Delivery Details modal")
 	}
 
 	// 2. CSS
@@ -62,14 +84,40 @@ func TestStaticAssets(t *testing.T) {
 	if err != nil || resCSS.StatusCode != 200 {
 		t.Fatalf("expected 200 for /app.css, got %v", resCSS)
 	}
+	cssBody, _ := io.ReadAll(resCSS.Body)
 	resCSS.Body.Close()
+	cssContent := string(cssBody)
+	fontExpected := `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"`
+	if !strings.Contains(cssContent, fontExpected) {
+		t.Fatalf("expected CSS font-family to contain %s", fontExpected)
+	}
+	if !strings.Contains(cssContent, "max-width: 930px") {
+		t.Fatal("expected app-container max-width 930px (1.5x)")
+	}
+	if !strings.Contains(cssContent, ".btn-action-icon") {
+		t.Fatal("expected .btn-action-icon CSS rule")
+	}
+	if !strings.Contains(cssContent, ".tg-bubble-container") || !strings.Contains(cssContent, ".tg-bubble") {
+		t.Fatal("expected Telegram-styled chat bubble CSS rules")
+	}
 
 	// 3. JS
 	resJS, err := client.Get(ts.URL + "/app.js")
 	if err != nil || resJS.StatusCode != 200 {
 		t.Fatalf("expected 200 for /app.js, got %v", resJS)
 	}
+	jsBody, _ := io.ReadAll(resJS.Body)
 	resJS.Body.Close()
+	jsContent := string(jsBody)
+	if !strings.Contains(jsContent, "showConfirmDialog") {
+		t.Fatal("expected showConfirmDialog centralized confirmation function in app.js")
+	}
+	if !strings.Contains(jsContent, "renderTelegramPreview") {
+		t.Fatal("expected renderTelegramPreview in app.js")
+	}
+	if !strings.Contains(jsContent, "ICONS") {
+		t.Fatal("expected ICONS object with reusable SVG icons in app.js")
+	}
 
 	// 4. Icon
 	resIcon, err := client.Get(ts.URL + "/icon.png")

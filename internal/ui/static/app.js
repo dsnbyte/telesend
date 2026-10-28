@@ -21,11 +21,69 @@
 
   // Modals
   const modalLogin = document.getElementById('modal-login');
+  const modalAddBot = document.getElementById('modal-add-bot');
   const modalEditBot = document.getElementById('modal-edit-bot');
+  const modalAddAlias = document.getElementById('modal-add-alias');
   const modalEditAlias = document.getElementById('modal-edit-alias');
   const modalHistoryDetail = document.getElementById('modal-history-detail');
+  const modalConfirm = document.getElementById('modal-confirm');
   const modalDeleteHistory = document.getElementById('modal-delete-history');
   const modalClearHistory = document.getElementById('modal-clear-history');
+
+  // Reusable lightweight SVG icons
+  const ICONS = {
+    edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    delete: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+    detail: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  };
+
+  // Centralized Confirmation Modal
+  const confirmModalTitle = document.getElementById('confirm-modal-title');
+  const confirmModalPrompt = document.getElementById('confirm-modal-prompt');
+  const confirmModalError = document.getElementById('confirm-modal-error');
+  const submitConfirmBtn = document.getElementById('submit-confirm-modal');
+  const closeConfirmBtn = document.getElementById('close-confirm-modal');
+  const cancelConfirmBtn = document.getElementById('cancel-confirm-modal');
+  const formConfirmModal = document.getElementById('form-confirm-modal');
+  let confirmActionHandler = null;
+
+  function showConfirmDialog({ title = 'Confirm Action', prompt = 'Are you sure?', confirmText = 'Delete', danger = true, onConfirm }) {
+    if (confirmModalTitle) confirmModalTitle.textContent = title;
+    if (confirmModalPrompt) confirmModalPrompt.textContent = prompt;
+    if (submitConfirmBtn) {
+      submitConfirmBtn.textContent = confirmText;
+      submitConfirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+    }
+    if (confirmModalError) {
+      confirmModalError.textContent = '';
+      confirmModalError.classList.add('hidden');
+    }
+    confirmActionHandler = onConfirm;
+    if (modalConfirm && typeof modalConfirm.showModal === 'function') {
+      modalConfirm.showModal();
+    }
+  }
+
+  if (closeConfirmBtn) closeConfirmBtn.addEventListener('click', () => modalConfirm.close());
+  if (cancelConfirmBtn) cancelConfirmBtn.addEventListener('click', () => modalConfirm.close());
+  if (formConfirmModal) {
+    formConfirmModal.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!confirmActionHandler) {
+        modalConfirm.close();
+        return;
+      }
+      try {
+        await confirmActionHandler();
+        modalConfirm.close();
+      } catch (err) {
+        if (confirmModalError) {
+          confirmModalError.textContent = err.message || 'Operation failed';
+          confirmModalError.classList.remove('hidden');
+        }
+      }
+    });
+  }
 
   // Tabs
   const navTabs = document.querySelectorAll('.nav-item');
@@ -164,7 +222,7 @@
   }
 
   function closeAllModals() {
-    [modalLogin, modalEditBot, modalEditAlias, modalHistoryDetail, modalDeleteHistory, modalClearHistory].forEach((m) => {
+    [modalLogin, modalAddBot, modalEditBot, modalAddAlias, modalEditAlias, modalHistoryDetail, modalConfirm, modalDeleteHistory, modalClearHistory].forEach((m) => {
       if (m && m.open && typeof m.close === 'function') m.close();
     });
   }
@@ -247,11 +305,11 @@
             <button type="button" class="btn btn-sm btn-subtle btn-set-default" data-username="${escapeHtml(bot.username)}" title="Set as default bot">
               Set default
             </button>` : ''}
-          <button type="button" class="btn btn-sm btn-subtle btn-edit-bot" data-username="${escapeHtml(bot.username)}" data-name="${escapeHtml(bot.name)}" title="Edit bot">
-            Edit
+          <button type="button" class="btn btn-sm btn-subtle btn-action-icon btn-edit-bot" data-username="${escapeHtml(bot.username)}" data-name="${escapeHtml(bot.name)}" title="Edit bot" aria-label="Edit bot">
+            ${ICONS.edit}
           </button>
-          <button type="button" class="btn btn-sm btn-danger btn-remove-bot" data-username="${escapeHtml(bot.username)}" title="Remove bot">
-            Remove
+          <button type="button" class="btn btn-sm btn-danger btn-action-icon btn-remove-bot" data-username="${escapeHtml(bot.username)}" title="Delete bot" aria-label="Delete bot">
+            ${ICONS.delete}
           </button>
         </div>
       </div>
@@ -285,51 +343,71 @@
     });
 
     listEl.querySelectorAll('.btn-remove-bot').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const username = btn.getAttribute('data-username');
-        if (!confirm(`Remove bot @${username}?`)) return;
-        try {
-          await apiCall(`/bots/${encodeURIComponent(username)}`, { method: 'DELETE' });
-          showAlert(`Bot @${username} removed.`);
-          loadBots();
-        } catch (err) {
-          showAlert(err.message, true);
-        }
+        showConfirmDialog({
+          title: 'Delete Bot',
+          prompt: `Are you sure you want to remove bot @${username}?`,
+          confirmText: 'Delete',
+          danger: true,
+          onConfirm: async () => {
+            await apiCall(`/bots/${encodeURIComponent(username)}`, { method: 'DELETE' });
+            showAlert(`Bot @${username} removed.`);
+            loadBots();
+          },
+        });
       });
     });
   }
 
-  // Add Bot Form
-  const addBotCard = document.getElementById('add-bot-card');
-  document.getElementById('toggle-add-bot-btn').addEventListener('click', () => {
-    addBotCard.classList.toggle('hidden');
-    if (!addBotCard.classList.contains('hidden')) {
-      document.getElementById('bot-token-input').focus();
-    }
-  });
-  document.getElementById('cancel-add-bot').addEventListener('click', () => {
-    addBotCard.classList.add('hidden');
-  });
+  // Add Bot Modal Form
+  const toggleAddBotBtn = document.getElementById('toggle-add-bot-btn');
+  const closeAddBotBtn = document.getElementById('close-add-bot');
+  const cancelAddBotBtn = document.getElementById('cancel-add-bot');
+  const formAddBot = document.getElementById('form-add-bot');
+  const addBotError = document.getElementById('add-bot-error');
 
-  document.getElementById('form-add-bot').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const token = document.getElementById('bot-token-input').value.trim();
-    if (!token) return;
+  if (toggleAddBotBtn) {
+    toggleAddBotBtn.addEventListener('click', () => {
+      if (formAddBot) formAddBot.reset();
+      if (addBotError) addBotError.classList.add('hidden');
+      if (modalAddBot && typeof modalAddBot.showModal === 'function') {
+        modalAddBot.showModal();
+        const inp = document.getElementById('bot-token-input');
+        if (inp) inp.focus();
+      }
+    });
+  }
+  if (closeAddBotBtn) closeAddBotBtn.addEventListener('click', () => modalAddBot.close());
+  if (cancelAddBotBtn) cancelAddBotBtn.addEventListener('click', () => modalAddBot.close());
 
-    try {
-      const res = await apiCall('/bots', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
-      document.getElementById('form-add-bot').reset();
-      addBotCard.classList.add('hidden');
-      showAlert(`Bot @${res.data.username} registered.`);
-      loadBots();
-    } catch (err) {
-      showAlert(err.message, true);
-    }
-  });
+  if (formAddBot) {
+    formAddBot.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const token = document.getElementById('bot-token-input').value.trim();
+      if (!token) return;
+      if (addBotError) addBotError.classList.add('hidden');
+
+      try {
+        const res = await apiCall('/bots', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        formAddBot.reset();
+        modalAddBot.close();
+        showAlert(`Bot @${res.data.username} registered.`);
+        loadBots();
+      } catch (err) {
+        if (addBotError) {
+          addBotError.textContent = err.message;
+          addBotError.classList.remove('hidden');
+        } else {
+          showAlert(err.message, true);
+        }
+      }
+    });
+  }
 
   // Edit Bot Form
   document.getElementById('close-edit-bot').addEventListener('click', () => modalEditBot.close());
@@ -400,15 +478,15 @@
           <button type="button" class="btn btn-sm btn-subtle btn-quick-send" data-name="${escapeHtml(al.name)}" title="Send message to this alias">
             Send
           </button>
-          <button type="button" class="btn btn-sm btn-subtle btn-edit-alias"
+          <button type="button" class="btn btn-sm btn-subtle btn-action-icon btn-edit-alias"
             data-name="${escapeHtml(al.name)}"
             data-chat-id="${escapeHtml(al.chatId)}"
             data-thread="${al.messageThreadId || ''}"
-            title="Edit alias">
-            Edit
+            title="Edit alias" aria-label="Edit alias">
+            ${ICONS.edit}
           </button>
-          <button type="button" class="btn btn-sm btn-danger btn-remove-alias" data-name="${escapeHtml(al.name)}" title="Delete alias">
-            Delete
+          <button type="button" class="btn btn-sm btn-danger btn-action-icon btn-remove-alias" data-name="${escapeHtml(al.name)}" title="Delete alias" aria-label="Delete alias">
+            ${ICONS.delete}
           </button>
         </div>
       </div>
@@ -442,16 +520,19 @@
     });
 
     listEl.querySelectorAll('.btn-remove-alias').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const name = btn.getAttribute('data-name');
-        if (!confirm(`Delete alias "${name}"?`)) return;
-        try {
-          await apiCall(`/aliases/${encodeURIComponent(name)}`, { method: 'DELETE' });
-          showAlert(`Alias "${name}" deleted.`);
-          loadAliases();
-        } catch (err) {
-          showAlert(err.message, true);
-        }
+        showConfirmDialog({
+          title: 'Delete Alias',
+          prompt: `Are you sure you want to delete alias "${name}"?`,
+          confirmText: 'Delete',
+          danger: true,
+          onConfirm: async () => {
+            await apiCall(`/aliases/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            showAlert(`Alias "${name}" deleted.`);
+            loadAliases();
+          },
+        });
       });
     });
   }
@@ -466,39 +547,56 @@
     });
   });
 
-  // Add Alias Form
-  const addAliasCard = document.getElementById('add-alias-card');
-  document.getElementById('toggle-add-alias-btn').addEventListener('click', () => {
-    addAliasCard.classList.toggle('hidden');
-    if (!addAliasCard.classList.contains('hidden')) {
-      document.getElementById('alias-name-input').focus();
-    }
-  });
-  document.getElementById('cancel-add-alias').addEventListener('click', () => {
-    addAliasCard.classList.add('hidden');
-  });
+  // Add Alias Modal Form
+  const toggleAddAliasBtn = document.getElementById('toggle-add-alias-btn');
+  const closeAddAliasBtn = document.getElementById('close-add-alias');
+  const cancelAddAliasBtn = document.getElementById('cancel-add-alias');
+  const formAddAlias = document.getElementById('form-add-alias');
+  const addAliasError = document.getElementById('add-alias-error');
 
-  document.getElementById('form-add-alias').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('alias-name-input').value.trim();
-    const chatId = document.getElementById('alias-chat-id-input').value.trim();
-    const threadStr = document.getElementById('alias-thread-id-input').value.trim();
-    const messageThreadId = threadStr ? parseInt(threadStr, 10) : null;
+  if (toggleAddAliasBtn) {
+    toggleAddAliasBtn.addEventListener('click', () => {
+      if (formAddAlias) formAddAlias.reset();
+      if (addAliasError) addAliasError.classList.add('hidden');
+      if (modalAddAlias && typeof modalAddAlias.showModal === 'function') {
+        modalAddAlias.showModal();
+        const inp = document.getElementById('alias-name-input');
+        if (inp) inp.focus();
+      }
+    });
+  }
+  if (closeAddAliasBtn) closeAddAliasBtn.addEventListener('click', () => modalAddAlias.close());
+  if (cancelAddAliasBtn) cancelAddAliasBtn.addEventListener('click', () => modalAddAlias.close());
 
-    try {
-      await apiCall('/aliases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, chatId, messageThreadId }),
-      });
-      document.getElementById('form-add-alias').reset();
-      addAliasCard.classList.add('hidden');
-      showAlert(`Alias "${name}" created.`);
-      loadAliases();
-    } catch (err) {
-      showAlert(err.message, true);
-    }
-  });
+  if (formAddAlias) {
+    formAddAlias.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('alias-name-input').value.trim();
+      const chatId = document.getElementById('alias-chat-id-input').value.trim();
+      const threadStr = document.getElementById('alias-thread-id-input').value.trim();
+      const messageThreadId = threadStr ? parseInt(threadStr, 10) : null;
+      if (addAliasError) addAliasError.classList.add('hidden');
+
+      try {
+        await apiCall('/aliases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, chatId, messageThreadId }),
+        });
+        formAddAlias.reset();
+        modalAddAlias.close();
+        showAlert(`Alias "${name}" created.`);
+        loadAliases();
+      } catch (err) {
+        if (addAliasError) {
+          addAliasError.textContent = err.message;
+          addAliasError.classList.remove('hidden');
+        } else {
+          showAlert(err.message, true);
+        }
+      }
+    });
+  }
 
   // Edit Alias Form
   document.getElementById('close-edit-alias').addEventListener('click', () => modalEditAlias.close());
@@ -975,11 +1073,11 @@
             </div>
           </div>
           <div class="item-actions">
-            <button type="button" class="btn btn-sm btn-subtle btn-history-detail" data-id="${item.id}" title="View delivery payload">
-              Details
+            <button type="button" class="btn btn-sm btn-subtle btn-action-icon btn-history-detail" data-id="${item.id}" title="View delivery details" aria-label="View delivery details">
+              ${ICONS.detail}
             </button>
-            <button type="button" class="btn btn-sm btn-danger btn-history-delete" data-id="${item.id}" title="Delete record">
-              &times;
+            <button type="button" class="btn btn-sm btn-danger btn-action-icon btn-history-delete" data-id="${item.id}" title="Delete record" aria-label="Delete record">
+              ${ICONS.delete}
             </button>
           </div>
         </div>
@@ -1001,18 +1099,27 @@
         document.getElementById('hist-detail-type').textContent = entry.messageType;
         document.getElementById('hist-detail-status').textContent = entry.status;
         document.getElementById('hist-detail-msgid').textContent = entry.messageId ? String(entry.messageId) : '-';
-        document.getElementById('hist-detail-summary').textContent = entry.summary || '-';
 
+        let p = {};
         let payloadFormatted = '{}';
         if (entry.payload) {
           try {
-            const p = typeof entry.payload === 'string' ? JSON.parse(entry.payload) : entry.payload;
+            p = typeof entry.payload === 'string' ? JSON.parse(entry.payload) : entry.payload;
             payloadFormatted = JSON.stringify(p, null, 2);
           } catch (_) {
             payloadFormatted = String(entry.payload);
           }
         }
         document.getElementById('hist-detail-payload').textContent = payloadFormatted;
+
+        const previewContainer = document.getElementById('hist-detail-preview');
+        if (previewContainer) {
+          previewContainer.innerHTML = renderTelegramPreview(entry, p);
+        }
+
+        const previewTabBtn = document.getElementById('tab-btn-detail-preview');
+        if (previewTabBtn) previewTabBtn.click();
+
         if (typeof modalHistoryDetail.showModal === 'function') {
           modalHistoryDetail.showModal();
         }
@@ -1206,6 +1313,282 @@
   const closeDetailBtn2 = document.getElementById('close-history-detail-btn');
   if (closeDetailBtn2) {
     closeDetailBtn2.addEventListener('click', () => modalHistoryDetail.close());
+  }
+
+  // History Detail Tabs Switching
+  const detailTabBtns = document.querySelectorAll('.detail-tab-btn');
+  detailTabBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = btn.getAttribute('data-tab-target');
+      detailTabBtns.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const panePreview = document.getElementById('detail-pane-preview');
+      const panePayload = document.getElementById('detail-pane-payload');
+      if (panePreview) panePreview.classList.toggle('hidden', target !== 'preview');
+      if (panePayload) panePayload.classList.toggle('hidden', target !== 'payload');
+    });
+  });
+
+  // Telegram Message Preview Formatter
+  function formatTelegramText(text, parseMode) {
+    if (!text) return '';
+    let escaped = escapeHtml(text);
+    if (parseMode === 'HTML') {
+      escaped = escaped
+        .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/gi, '<strong>$1</strong>')
+        .replace(/&lt;strong&gt;(.*?)&lt;\/strong&gt;/gi, '<strong>$1</strong>')
+        .replace(/&lt;i&gt;(.*?)&lt;\/i&gt;/gi, '<em>$1</em>')
+        .replace(/&lt;em&gt;(.*?)&lt;\/em&gt;/gi, '<em>$1</em>')
+        .replace(/&lt;u&gt;(.*?)&lt;\/u&gt;/gi, '<u>$1</u>')
+        .replace(/&lt;s&gt;(.*?)&lt;\/s&gt;/gi, '<s>$1</s>')
+        .replace(/&lt;strike&gt;(.*?)&lt;\/strike&gt;/gi, '<s>$1</s>')
+        .replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/gi, '<code class="tg-code">$1</code>')
+        .replace(/&lt;pre&gt;(.*?)&lt;\/pre&gt;/gi, '<pre class="tg-pre">$1</pre>')
+        .replace(/&lt;a href=&quot;(.*?)&quot;&gt;(.*?)&lt;\/a&gt;/gi, '<a href="$1" target="_blank" rel="noopener noreferrer">$2</a>');
+    } else if (parseMode === 'MarkdownV2' || parseMode === 'Markdown') {
+      escaped = escaped
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
+        .replace(/_(.*?)_/g, '<em>$1</em>')
+        .replace(/```([\s\S]*?)```/g, '<pre class="tg-pre">$1</pre>')
+        .replace(/`([^`]+)`/g, '<code class="tg-code">$1</code>');
+    }
+    return escaped;
+  }
+
+  function renderTelegramPreview(entry, p) {
+    let timeShort = '';
+    try {
+      const d = new Date(entry.createdAt);
+      if (!isNaN(d.getTime())) {
+        timeShort = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+    } catch (_) {}
+
+    const type = entry.messageType || 'text';
+    const metaHtml = `<div class="tg-meta"><span>${escapeHtml(timeShort)}</span></div>`;
+
+    if (type === 'text') {
+      const text = (p && p.text) || entry.summary || '';
+      const parseMode = p && p.parse_mode;
+      return `
+        <div class="tg-bubble">
+          <div class="tg-text">${formatTelegramText(text, parseMode)}</div>
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    if (type === 'photo') {
+      let photoUrl = '';
+      let photoLabel = '';
+      if (p && p.photo) {
+        if (typeof p.photo === 'string') {
+          if (p.photo.startsWith('http://') || p.photo.startsWith('https://')) {
+            photoUrl = p.photo;
+          } else {
+            photoLabel = p.photo;
+          }
+        } else if (p.photo.value && (p.photo.value.startsWith('http://') || p.photo.value.startsWith('https://'))) {
+          photoUrl = p.photo.value;
+        } else if (p.photo.filename) {
+          photoLabel = p.photo.filename;
+        } else if (p.photo.value) {
+          photoLabel = p.photo.value;
+        }
+      }
+      const caption = p && p.caption;
+      const parseMode = p && p.parse_mode;
+
+      let mediaHtml = '';
+      if (photoUrl) {
+        mediaHtml = `
+          <div class="tg-photo-wrap">
+            <img src="${escapeHtml(photoUrl)}" alt="Photo preview" class="tg-photo-preview" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'tg-media-file\\'><span class=\\'tg-media-icon\\'>🖼</span><span>Photo: ${escapeHtml(photoUrl)}</span></div>';">
+          </div>
+        `;
+      } else {
+        mediaHtml = `
+          <div class="tg-media-file">
+            <span class="tg-media-icon">🖼</span>
+            <span>${escapeHtml(photoLabel || entry.summary || 'Photo Attachment')}</span>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="tg-bubble">
+          ${mediaHtml}
+          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, parseMode)}</div>` : ''}
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    if (type === 'document') {
+      let docName = '';
+      if (p && p.document) {
+        if (typeof p.document === 'string') docName = p.document;
+        else docName = p.document.filename || p.document.value || '';
+      }
+      const caption = p && p.caption;
+      return `
+        <div class="tg-bubble">
+          <div class="tg-media-file">
+            <span class="tg-media-icon">📄</span>
+            <div class="tg-doc-info">
+              <strong>${escapeHtml(docName || entry.summary || 'Document')}</strong>
+              <span class="text-muted text-xs">Telegram Document</span>
+            </div>
+          </div>
+          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    if (type === 'video' || type === 'animation') {
+      let url = '';
+      let label = '';
+      const field = type === 'video' ? (p && p.video) : (p && p.animation);
+      if (typeof field === 'string') {
+        if (field.startsWith('http://') || field.startsWith('https://')) url = field;
+        else label = field;
+      } else if (field && field.value && (field.value.startsWith('http://') || field.value.startsWith('https://'))) {
+        url = field.value;
+      } else if (field && (field.filename || field.value)) {
+        label = field.filename || field.value;
+      }
+
+      const caption = p && p.caption;
+      const icon = type === 'animation' ? '🎞' : '🎥';
+      let mediaHtml = '';
+      if (url) {
+        mediaHtml = `
+          <div class="tg-photo-wrap">
+            <video src="${escapeHtml(url)}" controls class="tg-photo-preview" style="background:#000; max-height:280px;"></video>
+          </div>
+        `;
+      } else {
+        mediaHtml = `
+          <div class="tg-media-file">
+            <span class="tg-media-icon">${icon}</span>
+            <span>${escapeHtml(label || (type === 'animation' ? 'GIF / Animation' : 'Video'))}</span>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="tg-bubble">
+          ${mediaHtml}
+          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    if (type === 'audio' || type === 'voice') {
+      let url = '';
+      let label = '';
+      const field = type === 'audio' ? (p && p.audio) : (p && p.voice);
+      if (typeof field === 'string') {
+        if (field.startsWith('http://') || field.startsWith('https://')) url = field;
+        else label = field;
+      } else if (field && field.value && (field.value.startsWith('http://') || field.value.startsWith('https://'))) {
+        url = field.value;
+      } else if (field && (field.filename || field.value)) {
+        label = field.filename || field.value;
+      }
+
+      const caption = p && p.caption;
+      const icon = type === 'voice' ? '🎙' : '🎵';
+      let mediaHtml = '';
+      if (url) {
+        mediaHtml = `
+          <div class="tg-media-file">
+            <span class="tg-media-icon">${icon}</span>
+            <audio src="${escapeHtml(url)}" controls style="width: 100%; max-width: 280px;"></audio>
+          </div>
+        `;
+      } else {
+        mediaHtml = `
+          <div class="tg-media-file">
+            <span class="tg-media-icon">${icon}</span>
+            <span>${escapeHtml(label || (type === 'voice' ? 'Voice Message' : 'Audio File'))}</span>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="tg-bubble">
+          ${mediaHtml}
+          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    if (type === 'location') {
+      const lat = p ? p.latitude : '';
+      const lon = p ? p.longitude : '';
+      return `
+        <div class="tg-bubble">
+          <div class="tg-location-card">
+            <span class="tg-media-icon">📍</span>
+            <div>
+              <div style="font-weight:600;">Location Coordinates</div>
+              <div class="text-xs code-font text-muted">${escapeHtml(String(lat))}, ${escapeHtml(String(lon))}</div>
+              <a href="https://maps.google.com/?q=${encodeURIComponent(lat)},${encodeURIComponent(lon)}" target="_blank" rel="noopener noreferrer" class="tg-map-link">Open in Google Maps &rarr;</a>
+            </div>
+          </div>
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    if (type === 'poll') {
+      const q = (p && p.question) || 'Poll';
+      let options = (p && p.options) || [];
+      if (!Array.isArray(options)) options = [];
+      const optsHtml = options.map((opt) => {
+        const text = typeof opt === 'string' ? opt : (opt.text || '');
+        return `
+          <div class="tg-poll-option">
+            <span class="tg-poll-bullet"></span>
+            <span>${escapeHtml(text)}</span>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="tg-bubble">
+          <div class="tg-poll-card">
+            <div class="tg-poll-question">📊 ${escapeHtml(q)}</div>
+            <div class="tg-poll-options">${optsHtml}</div>
+            <div class="text-xs text-muted" style="margin-top: 6px;">Anonymous Poll</div>
+          </div>
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    if (type === 'dice') {
+      const emoji = (p && p.emoji) || '🎲';
+      return `
+        <div class="tg-bubble">
+          <div class="tg-dice">${escapeHtml(emoji)}</div>
+          ${metaHtml}
+        </div>
+      `;
+    }
+
+    const fallbackText = (p && (p.text || p.caption)) || entry.summary || type;
+    return `
+      <div class="tg-bubble">
+        <div class="tg-text">${escapeHtml(fallbackText)}</div>
+        ${metaHtml}
+      </div>
+    `;
   }
 
   // Utility
