@@ -14,4 +14,4 @@ check:
 	go vet ./...
 
 clean:
-	rm -rf dist
+	rm -f dist/telesend
