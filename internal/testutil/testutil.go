@@ -97,6 +97,10 @@ func NewTelegram(tb testing.TB) *Telegram {
 			writeJSON(w, 400, map[string]any{"ok": false, "error_code": 400, "description": fail})
 			return
 		}
+		if call.Method == "deleteMessage" {
+			writeJSON(w, 200, map[string]any{"ok": true, "result": true})
+			return
+		}
 		writeJSON(w, 200, map[string]any{"ok": true, "result": map[string]any{"message_id": n}})
 	}))
 	tb.Cleanup(t.Close)

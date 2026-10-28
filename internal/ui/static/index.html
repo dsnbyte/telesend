@@ -766,6 +766,31 @@
     </div>
   </dialog>
 
+  <!-- MODAL: DELETE HISTORY RECORD -->
+  <dialog id="modal-delete-history" class="app-modal" aria-labelledby="delete-history-title" closedby="any">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="delete-history-title" class="modal-title">Delete History Record</h2>
+        <button type="button" class="btn-close" id="close-delete-history" aria-label="Close">&times;</button>
+      </div>
+      <form id="form-delete-history">
+        <p id="delete-history-prompt" class="mb-3">Are you sure you want to delete this history record?</p>
+        <div class="form-group mb-3">
+          <label class="checkbox-label" for="delete-history-telegram">
+            <input type="checkbox" id="delete-history-telegram">
+            <span>Also delete message from Telegram</span>
+          </label>
+          <div class="text-muted font-normal mt-1" style="font-size: 11px;">Note: Telegram only allows bots to delete messages sent less than 48 hours ago.</div>
+        </div>
+        <div id="delete-history-error" class="form-error hidden mb-3"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="cancel-delete-history" autofocus>Cancel</button>
+          <button type="submit" class="btn btn-danger" id="confirm-delete-history-btn">Delete</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
   <script src="/app.js"></script>
 </body>
 </html>

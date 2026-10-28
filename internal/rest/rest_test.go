@@ -216,6 +216,25 @@ func TestRESTServer(t *testing.T) {
 		t.Fatalf("delete single history: %d", delSingleRes.StatusCode)
 	}
 
+	// Delete single entry with telegram deletion
+	secondID := histData.Data[1].ID
+	delTelegramRes := req(http.MethodDelete, "/history/"+strconv.FormatInt(secondID, 10)+"?delete_telegram=true", nil, "")
+	if delTelegramRes.StatusCode != 200 {
+		body, _ := io.ReadAll(delTelegramRes.Body)
+		t.Fatalf("delete single history with telegram: %d %s", delTelegramRes.StatusCode, string(body))
+	}
+	var delResult struct {
+		Data struct {
+			ID              int64 `json:"id"`
+			Deleted         bool  `json:"deleted"`
+			TelegramDeleted bool  `json:"telegramDeleted"`
+		} `json:"data"`
+	}
+	json.NewDecoder(delTelegramRes.Body).Decode(&delResult)
+	if !delResult.Data.Deleted || !delResult.Data.TelegramDeleted {
+		t.Fatalf("unexpected delete result: %+v", delResult)
+	}
+
 	// Clear all history
 	clearRes := req(http.MethodDelete, "/history", nil, "")
 	if clearRes.StatusCode != 200 {

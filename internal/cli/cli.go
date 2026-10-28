@@ -584,6 +584,38 @@ func runHistory(ctx context.Context, args []string, a *app.App, ioStreams IO, js
 		fmt.Fprintln(ioStreams.Out, formatTable([]string{"ID", "TIME", "TYPE", "BOT", "RECIPIENT", "SUMMARY", "STATUS"}, rows))
 		return nil
 
+	case "delete", "rm", "remove":
+		if len(args) < 2 {
+			return apperr.Newf(apperr.Validation, "Usage: telesend history delete <id> [--delete-telegram]")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil || id <= 0 {
+			return apperr.Newf(apperr.Validation, "Invalid history record ID: %s", args[1])
+		}
+		deleteTelegram := false
+		for _, arg := range args[2:] {
+			switch arg {
+			case "--delete-telegram", "--telegram", "-t":
+				deleteTelegram = true
+			default:
+				return apperr.Newf(apperr.Validation, "Unknown option: %s", arg)
+			}
+		}
+		res, err := a.DeleteHistory(ctx, id, deleteTelegram)
+		if err != nil {
+			return err
+		}
+		if jsonMode {
+			fmt.Fprintln(ioStreams.Out, string(jsonx.MarshalIndent(res)))
+			return nil
+		}
+		if res.TelegramDeleted {
+			fmt.Fprintf(ioStreams.Out, "Deleted history record %d and Telegram message.\n", id)
+		} else {
+			fmt.Fprintf(ioStreams.Out, "Deleted history record %d.\n", id)
+		}
+		return nil
+
 	case "clear":
 		deleted, err := a.History.Clear()
 		if err != nil {
@@ -609,7 +641,7 @@ func runHistory(ctx context.Context, args []string, a *app.App, ioStreams IO, js
 		return nil
 
 	default:
-		return apperr.Newf(apperr.Validation, "Usage: telesend history [list|clear|prune]")
+		return apperr.Newf(apperr.Validation, "Usage: telesend history [list|delete|clear|prune]")
 	}
 }
 
@@ -1081,7 +1113,7 @@ Usage:
   telesend [--json] alias list [group|private]
   telesend [--json] alias update|remove
   telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
-  telesend [--json] history [list|clear|prune] [--limit <n>] [--type <type>] [--bot <username>]
+  telesend [--json] history [list|delete|clear|prune] [<id>] [--delete-telegram] [--limit <n>] [--type <type>] [--bot <username>]
   telesend serve [--host <host>] [--port <port>] [--no-mcp] [--no-rest] [--no-ui]
   telesend mcp [--config <path>] [--allow-path <path> ...]
   telesend hash-key

@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/dsnbyte/telesend/internal/app"
@@ -398,5 +399,179 @@ func TestAppDeliveryHistory(t *testing.T) {
 		t.Fatalf("expected status delivered, got %s", e.Status)
 	}
 }
+
+func TestDeleteHistory(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("delete local history only", func(t *testing.T) {
+		a, tg := testutil.WithBot(t)
+		_, err := a.Send(ctx, app.SendRequest{
+			Type:    "text",
+			To:      "-100123",
+			Payload: map[string]any{"text": "msg1"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, _ := a.History.List(store.HistoryFilter{})
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+		initCalls := len(tg.Calls())
+
+		res, err := a.DeleteHistory(ctx, entries[0].ID, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.Deleted || res.TelegramDeleted {
+			t.Fatalf("unexpected res: %+v", res)
+		}
+		if len(tg.Calls()) != initCalls {
+			t.Fatalf("expected no telegram calls on local delete, got %d calls", len(tg.Calls())-initCalls)
+		}
+		rem, _ := a.History.List(store.HistoryFilter{})
+		if len(rem) != 0 {
+			t.Fatalf("expected 0 entries remaining, got %d", len(rem))
+		}
+	})
+
+	t.Run("delete local history and telegram message", func(t *testing.T) {
+		a, tg := testutil.WithBot(t)
+		_, err := a.Send(ctx, app.SendRequest{
+			Type:    "text",
+			To:      "-100123",
+			Payload: map[string]any{"text": "msg2"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, _ := a.History.List(store.HistoryFilter{})
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+
+		res, err := a.DeleteHistory(ctx, entries[0].ID, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.Deleted || !res.TelegramDeleted {
+			t.Fatalf("unexpected res: %+v", res)
+		}
+		calls := tg.Calls()
+		lastCall := calls[len(calls)-1]
+		if lastCall.Method != "deleteMessage" {
+			t.Fatalf("expected last call to be deleteMessage, got %s", lastCall.Method)
+		}
+		rem, _ := a.History.List(store.HistoryFilter{})
+		if len(rem) != 0 {
+			t.Fatalf("expected 0 entries remaining, got %d", len(rem))
+		}
+	})
+
+	t.Run("delete with telegram when no message_id fails and preserves record", func(t *testing.T) {
+		a, _ := testutil.WithBot(t)
+		rec, err := a.History.Record(store.HistoryEntry{
+			Bot:         "default_bot",
+			ChatID:      "-100123",
+			Recipient:   "-100123",
+			MessageType: "text",
+			Summary:     "no msg id",
+			Status:      "failed",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = a.DeleteHistory(ctx, rec.ID, true)
+		if err == nil {
+			t.Fatal("expected error when message ID is missing")
+		}
+		// Record should still exist in DB
+		entry, _ := a.History.Get(rec.ID)
+		if entry == nil {
+			t.Fatal("expected record to be preserved after telegram delete failure")
+		}
+	})
+
+	t.Run("delete with telegram when bot not found fails and preserves record", func(t *testing.T) {
+		a, _ := testutil.WithBot(t)
+		msgID := int64(999)
+		rec, err := a.History.Record(store.HistoryEntry{
+			Bot:         "nonexistent_bot",
+			ChatID:      "-100123",
+			Recipient:   "-100123",
+			MessageType: "text",
+			Summary:     "missing bot",
+			MessageID:   &msgID,
+			Status:      "delivered",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = a.DeleteHistory(ctx, rec.ID, true)
+		if err == nil {
+			t.Fatal("expected error when bot is not configured")
+		}
+		entry, _ := a.History.Get(rec.ID)
+		if entry == nil {
+			t.Fatal("expected record to be preserved after bot missing failure")
+		}
+	})
+
+	t.Run("delete with telegram when message > 48h and telegram fails", func(t *testing.T) {
+		a, tg := testutil.WithBot(t)
+		tg.Fail = "Bad Request: message can't be deleted"
+		msgID := int64(1001)
+		rec, err := a.History.Record(store.HistoryEntry{
+			Bot:         "default_bot",
+			ChatID:      "-100123",
+			Recipient:   "-100123",
+			MessageType: "text",
+			Summary:     "old message",
+			MessageID:   &msgID,
+			Status:      "delivered",
+			CreatedAt:   "2020-01-01T00:00:00.000Z",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = a.DeleteHistory(ctx, rec.ID, true)
+		if err == nil {
+			t.Fatal("expected error for >48h message deletion")
+		}
+		if !strings.Contains(err.Error(), "48 hours") {
+			t.Fatalf("expected error mentioning 48 hours, got: %v", err)
+		}
+		// Record must still exist in DB
+		entry, _ := a.History.Get(rec.ID)
+		if entry == nil {
+			t.Fatal("expected record to be preserved in DB after 48h failure")
+		}
+
+		// Can still delete local history without deleteTelegram
+		res, err := a.DeleteHistory(ctx, rec.ID, false)
+		if err != nil {
+			t.Fatalf("failed to delete local history: %v", err)
+		}
+		if !res.Deleted {
+			t.Fatal("expected local record to be deleted")
+		}
+		entry, _ = a.History.Get(rec.ID)
+		if entry != nil {
+			t.Fatal("expected record to be deleted from DB")
+		}
+	})
+
+	t.Run("delete non-existent record", func(t *testing.T) {
+		a, _ := testutil.WithBot(t)
+		_, err := a.DeleteHistory(ctx, 999999, false)
+		if err == nil {
+			t.Fatal("expected not found error")
+		}
+	})
+}
+
 
 

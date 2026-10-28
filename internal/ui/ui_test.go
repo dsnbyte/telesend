@@ -456,6 +456,12 @@ func TestBotsAndAliasesManagement(t *testing.T) {
 		t.Fatalf("expected 200 for delete single history, got %d", res.StatusCode)
 	}
 
+	secondID := histRes.Data[1].ID
+	res, data = doReq(http.MethodDelete, "/api/ui/history/"+strconv.FormatInt(secondID, 10)+"?delete_telegram=true", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for delete history with telegram, got %d: %s", res.StatusCode, string(data))
+	}
+
 	res, data = doReq(http.MethodDelete, "/api/ui/history", nil)
 	if res.StatusCode != 200 {
 		t.Fatalf("expected 200 for clear history, got %d", res.StatusCode)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -482,20 +483,25 @@ func TestCLIServerOptions(t *testing.T) {
 	}
 
 	// 8. Default port is 3100 when --port is omitted
-	ctxDef, cancelDef := context.WithCancel(context.Background())
-	defer cancelDef()
-	resChDef := make(chan runResult, 1)
-	go func() {
-		out, errS, c := run(ctxDef, env.tg, env.wrapper, []string{"serve", "--no-rest", "--no-ui"}, "")
-		resChDef <- runResult{out, errS, c}
-	}()
-	if !waitServerReady("http://127.0.0.1:3100/.well-known/oauth-protected-resource", 2*time.Second) {
-		t.Fatalf("server on default port 3100 did not become ready")
-	}
-	cancelDef()
-	rrDef := <-resChDef
-	if !strings.Contains(rrDef.out, "http://127.0.0.1:3100/") {
-		t.Fatalf("expected default port 3100 in output: %q", rrDef.out)
+	if ln, err := net.Listen("tcp", "127.0.0.1:3100"); err != nil {
+		t.Logf("skipping default port 3100 test: port 3100 already in use (%v)", err)
+	} else {
+		ln.Close()
+		ctxDef, cancelDef := context.WithCancel(context.Background())
+		defer cancelDef()
+		resChDef := make(chan runResult, 1)
+		go func() {
+			out, errS, c := run(ctxDef, env.tg, env.wrapper, []string{"serve", "--no-rest", "--no-ui"}, "")
+			resChDef <- runResult{out, errS, c}
+		}()
+		if !waitServerReady("http://127.0.0.1:3100/.well-known/oauth-protected-resource", 2*time.Second) {
+			t.Fatalf("server on default port 3100 did not become ready")
+		}
+		cancelDef()
+		rrDef := <-resChDef
+		if !strings.Contains(rrDef.out, "http://127.0.0.1:3100/") {
+			t.Fatalf("expected default port 3100 in output: %q", rrDef.out)
+		}
 	}
 }
 
@@ -616,7 +622,34 @@ func TestCLIHistory(t *testing.T) {
 		t.Fatalf("history prune failed: %d %q", code, out)
 	}
 
+	// 5b. History delete with --delete-telegram
+	idStr := strconv.FormatInt(entries[0].ID, 10)
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history", "delete", idStr, "--delete-telegram"}, "")
+	if code != 0 || !strings.Contains(out, "Deleted history record "+idStr+" and Telegram message.") {
+		t.Fatalf("history delete --delete-telegram failed: %d %q", code, out)
+	}
+	calls := env.tg.Calls()
+	if len(calls) == 0 || calls[len(calls)-1].Method != "deleteMessage" {
+		t.Fatalf("expected last call to be deleteMessage, calls: %+v", calls)
+	}
+
+	// Send another message to test local delete
+	_, _, _ = run(ctx, env.tg, env.wrapper, []string{"msg", "text", "ops", "second msg"}, "")
+	out, _, _ = run(ctx, env.tg, env.wrapper, []string{"history", "--json"}, "")
+	var entries2 []store.HistoryEntry
+	_ = json.Unmarshal([]byte(out), &entries2)
+	if len(entries2) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries2))
+	}
+	idStr2 := strconv.FormatInt(entries2[0].ID, 10)
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history", "delete", idStr2}, "")
+	if code != 0 || !strings.Contains(out, "Deleted history record "+idStr2+".") {
+		t.Fatalf("history delete failed: %d %q", code, out)
+	}
+
 	// 6. History clear
+	// Send one more message to clear
+	_, _, _ = run(ctx, env.tg, env.wrapper, []string{"msg", "text", "ops", "to be cleared"}, "")
 	out, _, code = run(ctx, env.tg, env.wrapper, []string{"history", "clear"}, "")
 	if code != 0 || !strings.Contains(out, "Cleared 1 history records.") {
 		t.Fatalf("history clear failed: %d %q", code, out)

@@ -41,6 +41,11 @@ func TestTelegramClient(t *testing.T) {
 			w.Write([]byte(`{"ok":true,"result":{"message_id":789}}`))
 			return
 		}
+		if r.URL.Path == "/botTEST/deleteMessage" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
 		http.Error(w, "not found", 404)
 	}))
 	defer ts.Close()
@@ -66,5 +71,9 @@ func TestTelegramClient(t *testing.T) {
 	})
 	if err != nil || string(photoRaw) != `{"message_id":789}` {
 		t.Fatalf("sendPhoto: %s %v", string(photoRaw), err)
+	}
+
+	if err := c.DeleteMessage(context.Background(), "TEST", "1", 456); err != nil {
+		t.Fatalf("deleteMessage: %v", err)
 	}
 }

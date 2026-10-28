@@ -24,6 +24,7 @@
   const modalEditBot = document.getElementById('modal-edit-bot');
   const modalEditAlias = document.getElementById('modal-edit-alias');
   const modalHistoryDetail = document.getElementById('modal-history-detail');
+  const modalDeleteHistory = document.getElementById('modal-delete-history');
 
   // Tabs
   const navTabs = document.querySelectorAll('.nav-item');
@@ -162,7 +163,7 @@
   }
 
   function closeAllModals() {
-    [modalLogin, modalEditBot, modalEditAlias, modalHistoryDetail].forEach((m) => {
+    [modalLogin, modalEditBot, modalEditAlias, modalHistoryDetail, modalDeleteHistory].forEach((m) => {
       if (m && m.open && typeof m.close === 'function') m.close();
     });
   }
@@ -971,16 +972,81 @@
     });
 
     listEl.querySelectorAll('.btn-history-delete').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-id');
-        try {
-          await apiCall(`/history/${id}`, { method: 'DELETE' });
-          showAlert(`History record #${id} removed.`);
-          loadHistory();
-        } catch (err) {
-          showAlert(err.message, true);
-        }
+        openDeleteHistoryModal(id);
       });
+    });
+  }
+
+  // Delete History Modal
+  let pendingDeleteHistoryId = null;
+  const deleteHistoryPrompt = document.getElementById('delete-history-prompt');
+  const deleteHistoryTelegram = document.getElementById('delete-history-telegram');
+  const deleteHistoryError = document.getElementById('delete-history-error');
+  const formDeleteHistory = document.getElementById('form-delete-history');
+  const closeDeleteHistBtn = document.getElementById('close-delete-history');
+  const cancelDeleteHistBtn = document.getElementById('cancel-delete-history');
+
+  function openDeleteHistoryModal(id) {
+    pendingDeleteHistoryId = id;
+    if (deleteHistoryPrompt) {
+      deleteHistoryPrompt.textContent = `Are you sure you want to delete history record #${id}?`;
+    }
+    if (deleteHistoryTelegram) {
+      deleteHistoryTelegram.checked = false;
+    }
+    if (deleteHistoryError) {
+      deleteHistoryError.textContent = '';
+      deleteHistoryError.classList.add('hidden');
+    }
+    if (modalDeleteHistory && typeof modalDeleteHistory.showModal === 'function') {
+      modalDeleteHistory.showModal();
+    }
+  }
+
+  if (closeDeleteHistBtn) {
+    closeDeleteHistBtn.addEventListener('click', () => {
+      if (modalDeleteHistory && typeof modalDeleteHistory.close === 'function') modalDeleteHistory.close();
+    });
+  }
+  if (cancelDeleteHistBtn) {
+    cancelDeleteHistBtn.addEventListener('click', () => {
+      if (modalDeleteHistory && typeof modalDeleteHistory.close === 'function') modalDeleteHistory.close();
+    });
+  }
+
+  if (formDeleteHistory) {
+    formDeleteHistory.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!pendingDeleteHistoryId) return;
+
+      const deleteTelegram = deleteHistoryTelegram ? deleteHistoryTelegram.checked : false;
+      const endpoint = `/history/${pendingDeleteHistoryId}${deleteTelegram ? '?delete_telegram=true' : ''}`;
+
+      if (deleteHistoryError) {
+        deleteHistoryError.textContent = '';
+        deleteHistoryError.classList.add('hidden');
+      }
+
+      try {
+        const res = await apiCall(endpoint, { method: 'DELETE' });
+        if (modalDeleteHistory && typeof modalDeleteHistory.close === 'function') {
+          modalDeleteHistory.close();
+        }
+        if (res && res.data && res.data.telegramDeleted) {
+          showAlert(`History record #${pendingDeleteHistoryId} and Telegram message deleted.`);
+        } else {
+          showAlert(`History record #${pendingDeleteHistoryId} removed.`);
+        }
+        loadHistory();
+      } catch (err) {
+        if (deleteHistoryError) {
+          deleteHistoryError.textContent = err.message;
+          deleteHistoryError.classList.remove('hidden');
+        }
+        showAlert(err.message, true);
+      }
     });
   }
 

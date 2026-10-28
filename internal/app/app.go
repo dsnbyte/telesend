@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dsnbyte/telesend/internal/apperr"
 	"github.com/dsnbyte/telesend/internal/store"
@@ -437,3 +438,68 @@ func validateMedia(v any, allowURL bool, key string) error {
 	}
 	return nil
 }
+
+// DeleteHistoryResult holds the outcome of deleting a history record.
+type DeleteHistoryResult struct {
+	ID              int64 `json:"id"`
+	Deleted         bool  `json:"deleted"`
+	TelegramDeleted bool  `json:"telegramDeleted,omitempty"`
+}
+
+// DeleteHistory removes a history record by ID, optionally deleting the message from Telegram as well.
+func (a *App) DeleteHistory(ctx context.Context, id int64, deleteTelegram bool) (*DeleteHistoryResult, error) {
+	entry, err := a.History.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, apperr.Newf(apperr.NotFound, "History entry %d was not found", id)
+	}
+
+	if deleteTelegram {
+		if entry.MessageID == nil || *entry.MessageID == 0 {
+			return nil, apperr.New(apperr.Validation, "Cannot delete from Telegram: no message ID recorded for this entry. It can only be deleted from history.")
+		}
+		bot, err := a.Bots.Find(entry.Bot)
+		if err != nil {
+			return nil, err
+		}
+		if bot == nil || bot.Token == "" {
+			return nil, apperr.Newf(apperr.Validation, "Cannot delete from Telegram: bot @%s is not configured. It can only be deleted from history.", entry.Bot)
+		}
+
+		if err := a.Telegram.DeleteMessage(ctx, bot.Token, entry.ChatID, *entry.MessageID); err != nil {
+			isOld := false
+			if t, parseErr := time.Parse("2006-01-02T15:04:05.000Z", entry.CreatedAt); parseErr == nil {
+				if time.Since(t) > 48*time.Hour {
+					isOld = true
+				}
+			} else if t, parseErr := time.Parse(time.RFC3339Nano, entry.CreatedAt); parseErr == nil {
+				if time.Since(t) > 48*time.Hour {
+					isOld = true
+				}
+			}
+
+			errStr := strings.ToLower(err.Error())
+			if isOld || strings.Contains(errStr, "can't be deleted") || strings.Contains(errStr, "cant be deleted") || strings.Contains(errStr, "not found") {
+				return nil, apperr.New(apperr.Validation, "Message is older than 48 hours and cannot be deleted from Telegram. It can only be deleted from history.")
+			}
+			return nil, apperr.Newf(apperr.Telegram, "Failed to delete from Telegram: %s. It can only be deleted from history.", apperr.Redact(err.Error(), bot.Token))
+		}
+	}
+
+	deleted, err := a.History.Delete(id)
+	if err != nil {
+		return nil, err
+	}
+	if !deleted {
+		return nil, apperr.Newf(apperr.NotFound, "History entry %d was not found", id)
+	}
+
+	return &DeleteHistoryResult{
+		ID:              id,
+		Deleted:         true,
+		TelegramDeleted: deleteTelegram,
+	}, nil
+}
+

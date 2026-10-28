@@ -404,14 +404,14 @@ func (s *Server) handleGetHistory(w http.ResponseWriter, r *http.Request, id int
 }
 
 func (s *Server) handleDeleteHistory(w http.ResponseWriter, r *http.Request, id int64) error {
-	deleted, err := s.app.History.Delete(id)
+	q := r.URL.Query()
+	deleteTelegram := q.Get("delete_telegram") == "true" || q.Get("delete_telegram") == "1" ||
+		q.Get("delete-telegram") == "true" || q.Get("delete-telegram") == "1"
+	res, err := s.app.DeleteHistory(r.Context(), id, deleteTelegram)
 	if err != nil {
 		return err
 	}
-	if !deleted {
-		return apperr.Newf(apperr.NotFound, "History entry %d was not found", id)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": id, "deleted": true}})
+	writeJSON(w, http.StatusOK, map[string]any{"data": res})
 	return nil
 }
 

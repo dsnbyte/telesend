@@ -51,6 +51,16 @@ func (c *Client) GetMe(ctx context.Context, token string) (User, error) {
 	return u, nil
 }
 
+// DeleteMessage deletes a message from Telegram.
+func (c *Client) DeleteMessage(ctx context.Context, token, chatID string, messageID int64) error {
+	payload := map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+	}
+	_, err := c.Call(ctx, token, "deleteMessage", payload)
+	return err
+}
+
 type envelope struct {
 	OK          bool            `json:"ok"`
 	Result      json.RawMessage `json:"result"`
