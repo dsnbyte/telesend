@@ -121,7 +121,7 @@ func (s *Server) dispatch(ctx context.Context, req request) (any, *rpcError) {
 	case "tools/list":
 		list := make([]any, 0, len(s.tools))
 		for _, t := range s.tools {
-			annotations := map[string]any{"readOnlyHint": t.ReadOnly, "destructiveHint": false, "idempotentHint": t.ReadOnly}
+			annotations := map[string]any{"readOnlyHint": true, "destructiveHint": false, "idempotentHint": t.ReadOnly}
 			if !t.ReadOnly {
 				annotations["openWorldHint"] = true
 			}

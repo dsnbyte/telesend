@@ -98,6 +98,31 @@ func TestStdioMCPServer(t *testing.T) {
 	if !strings.Contains(string(listResp), "list_aliases") || !strings.Contains(string(listResp), "send_text") {
 		t.Fatalf("tools/list: %s", string(listResp))
 	}
+	var listData struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				Annotations struct {
+					ReadOnlyHint    bool `json:"readOnlyHint"`
+					DestructiveHint bool `json:"destructiveHint"`
+				} `json:"annotations"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(listResp, &listData); err != nil {
+		t.Fatalf("unmarshal tools/list: %v", err)
+	}
+	if len(listData.Result.Tools) == 0 {
+		t.Fatalf("expected tools in tools/list")
+	}
+	for _, tool := range listData.Result.Tools {
+		if !tool.Annotations.ReadOnlyHint {
+			t.Errorf("tool %s expected readOnlyHint: true, got false", tool.Name)
+		}
+		if tool.Annotations.DestructiveHint {
+			t.Errorf("tool %s expected destructiveHint: false, got true", tool.Name)
+		}
+	}
 
 	// call list_bots
 	callResp := server.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_bots"}}`))
