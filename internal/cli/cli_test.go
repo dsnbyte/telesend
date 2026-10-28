@@ -276,34 +276,54 @@ func waitServerReady(url string, timeout time.Duration) bool {
 func TestCLIServerOptions(t *testing.T) {
 	env := setupCLI(t)
 
-	// 1. Both REST and MCP servers disabled -> validation error
-	_, errOut, code := run(context.Background(), env.tg, env.wrapper, []string{"serve", "--no-mcp", "--no-rest"}, "")
-	if code != 1 || !strings.Contains(errOut, "Cannot disable both REST and MCP servers") {
-		t.Fatalf("expected both disabled error: %d %q", code, errOut)
+	// 1. All services disabled -> validation error
+	_, errOut, code := run(context.Background(), env.tg, env.wrapper, []string{"serve", "--no-mcp", "--no-rest", "--no-ui"}, "")
+	if code != 1 || !strings.Contains(errOut, "Cannot disable all services (REST, MCP, and UI)") {
+		t.Fatalf("expected all disabled error: %d %q", code, errOut)
 	}
 
-	// 2. Both servers enabled by default: missing MCP config fails fast
+	// 1b. Case-insensitive flags: --no-MCP --no-REST --no-UI
+	_, errOut, code = run(context.Background(), env.tg, env.wrapper, []string{"serve", "--no-MCP", "--no-REST", "--no-UI"}, "")
+	if code != 1 || !strings.Contains(errOut, "Cannot disable all services (REST, MCP, and UI)") {
+		t.Fatalf("expected all disabled error with uppercase flags: %d %q", code, errOut)
+	}
+
+	// 2. Services enabled by default: missing MCP config fails fast
 	t.Setenv("TELESEND_API_KEY", "test-api-key")
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "")
+	t.Setenv("TELESEND_UI_PASSWORD", "test-ui-password")
 	_, errOut, code = run(context.Background(), env.tg, env.wrapper, []string{"serve"}, "")
 	if code != 1 || !strings.Contains(errOut, "TELESEND_MCP_PUBLIC_URL is required") {
 		t.Fatalf("expected missing MCP config error: %d %q", code, errOut)
 	}
 
-	// 3. Both servers enabled by default: missing REST config fails fast
+	// 3. Services enabled by default: missing REST config fails fast
 	t.Setenv("TELESEND_API_KEY", "")
 	t.Setenv("TELESEND_API_KEY_HASH", "")
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
 	t.Setenv("TELESEND_MCP_PASSWORD", "owner_secret")
+	t.Setenv("TELESEND_UI_PASSWORD", "test-ui-password")
 	_, errOut, code = run(context.Background(), env.tg, env.wrapper, []string{"serve"}, "")
 	if code != 1 || !strings.Contains(errOut, "TELESEND_API_KEY or TELESEND_API_KEY_HASH is required") {
 		t.Fatalf("expected missing REST config error: %d %q", code, errOut)
 	}
 
-	// 4. Start both servers on unified port
+	// 3b. Services enabled by default: missing UI config fails fast
 	t.Setenv("TELESEND_API_KEY", "test-api-key")
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
 	t.Setenv("TELESEND_MCP_PASSWORD", "owner_secret")
+	t.Setenv("TELESEND_UI_PASSWORD", "")
+	t.Setenv("TELESEND_UI_PASSWORD_HASH", "")
+	_, errOut, code = run(context.Background(), env.tg, env.wrapper, []string{"serve"}, "")
+	if code != 1 || !strings.Contains(errOut, "TELESEND_UI_PASSWORD or TELESEND_UI_PASSWORD_HASH is required") {
+		t.Fatalf("expected missing UI config error: %d %q", code, errOut)
+	}
+
+	// 4. Start all services on unified port
+	t.Setenv("TELESEND_API_KEY", "test-api-key")
+	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
+	t.Setenv("TELESEND_MCP_PASSWORD", "owner_secret")
+	t.Setenv("TELESEND_UI_PASSWORD", "test-ui-password")
 	port := freePort(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -346,24 +366,33 @@ func TestCLIServerOptions(t *testing.T) {
 	}
 	res.Body.Close()
 
+	// Test Web UI endpoint
+	res, err = http.Get("http://127.0.0.1:" + port + "/")
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("expected UI root 200: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
 	cancel()
 	rr := <-resCh
 	if !strings.Contains(rr.out, "Telesend server listening on http://127.0.0.1:"+port+"/") ||
 		!strings.Contains(rr.out, "REST API:   http://127.0.0.1:"+port+"/") ||
-		!strings.Contains(rr.out, "Remote MCP: http://127.0.0.1:"+port+"/") {
-		t.Fatalf("expected both server startup output: %q", rr.out)
+		!strings.Contains(rr.out, "Remote MCP: http://127.0.0.1:"+port+"/") ||
+		!strings.Contains(rr.out, "Web UI:     http://127.0.0.1:"+port+"/") {
+		t.Fatalf("expected full server startup output: %q", rr.out)
 	}
 
-	// 5. REST only (--no-mcp): MCP config not required
+	// 5. REST only (--no-mcp --no-ui): MCP and UI config not required
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "")
 	t.Setenv("TELESEND_MCP_PASSWORD", "")
+	t.Setenv("TELESEND_UI_PASSWORD", "")
 	portREST := freePort(t)
 	ctxREST, cancelREST := context.WithCancel(context.Background())
 	defer cancelREST()
 
 	resChREST := make(chan runResult, 1)
 	go func() {
-		out, errS, c := run(ctxREST, env.tg, env.wrapper, []string{"serve", "--port", portREST, "--no-mcp"}, "")
+		out, errS, c := run(ctxREST, env.tg, env.wrapper, []string{"serve", "--port", portREST, "--no-mcp", "--no-ui"}, "")
 		resChREST <- runResult{out, errS, c}
 	}()
 
@@ -378,23 +407,31 @@ func TestCLIServerOptions(t *testing.T) {
 	}
 	res.Body.Close()
 
+	// UI route should return 404
+	res, err = http.Get("http://127.0.0.1:" + portREST + "/ui")
+	if err != nil || res.StatusCode != 404 {
+		t.Fatalf("expected 404 for UI route on REST-only server: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
 	cancelREST()
 	rrREST := <-resChREST
 	if !strings.Contains(rrREST.out, "Telesend REST API listening on http://127.0.0.1:"+portREST+"/") {
 		t.Fatalf("expected REST-only startup output: %q", rrREST.out)
 	}
 
-	// 6. MCP only (--no-rest): REST config not required
+	// 6. MCP only (--no-rest --no-ui): REST and UI config not required
 	t.Setenv("TELESEND_API_KEY", "")
 	t.Setenv("TELESEND_MCP_PUBLIC_URL", "https://mcp.example.com")
 	t.Setenv("TELESEND_MCP_PASSWORD", "owner_secret")
+	t.Setenv("TELESEND_UI_PASSWORD", "")
 	portMCP := freePort(t)
 	ctxMCP, cancelMCP := context.WithCancel(context.Background())
 	defer cancelMCP()
 
 	resChMCP := make(chan runResult, 1)
 	go func() {
-		out, errS, c := run(ctxMCP, env.tg, env.wrapper, []string{"serve", "--port", portMCP, "--no-rest"}, "")
+		out, errS, c := run(ctxMCP, env.tg, env.wrapper, []string{"serve", "--port", portMCP, "--no-rest", "--no-ui"}, "")
 		resChMCP <- runResult{out, errS, c}
 	}()
 
@@ -411,20 +448,27 @@ func TestCLIServerOptions(t *testing.T) {
 	}
 	res.Body.Close()
 
+	// UI route should return 404
+	res, err = http.Get("http://127.0.0.1:" + portMCP + "/ui")
+	if err != nil || res.StatusCode != 404 {
+		t.Fatalf("expected 404 for UI route on MCP-only server: %v, code %d", err, res.StatusCode)
+	}
+	res.Body.Close()
+
 	cancelMCP()
 	rrMCP := <-resChMCP
 	if !strings.Contains(rrMCP.out, "Telesend remote MCP listening on http://127.0.0.1:"+portMCP+"/") {
 		t.Fatalf("expected MCP-only startup output: %q", rrMCP.out)
 	}
 
-	// 7. MCP only with --no-api alias
+	// 7. MCP only with --no-api alias and --no-ui
 	portAPI := freePort(t)
 	ctxAPI, cancelAPI := context.WithCancel(context.Background())
 	defer cancelAPI()
 
 	resChAPI := make(chan runResult, 1)
 	go func() {
-		out, errS, c := run(ctxAPI, env.tg, env.wrapper, []string{"serve", "--port", portAPI, "--no-api"}, "")
+		out, errS, c := run(ctxAPI, env.tg, env.wrapper, []string{"serve", "--port", portAPI, "--no-api", "--no-ui"}, "")
 		resChAPI <- runResult{out, errS, c}
 	}()
 
@@ -442,7 +486,7 @@ func TestCLIServerOptions(t *testing.T) {
 	defer cancelDef()
 	resChDef := make(chan runResult, 1)
 	go func() {
-		out, errS, c := run(ctxDef, env.tg, env.wrapper, []string{"serve", "--no-rest"}, "")
+		out, errS, c := run(ctxDef, env.tg, env.wrapper, []string{"serve", "--no-rest", "--no-ui"}, "")
 		resChDef <- runResult{out, errS, c}
 	}()
 	if !waitServerReady("http://127.0.0.1:3100/.well-known/oauth-protected-resource", 2*time.Second) {
@@ -480,6 +524,15 @@ func TestCLIBotUpdate(t *testing.T) {
 
 func TestCLIUICommand(t *testing.T) {
 	env := setupCLI(t)
+
+	// 1. telesend ui command is now unknown
+	_, errOut, code := run(context.Background(), env.tg, env.wrapper, []string{"ui"}, "")
+	if code != 1 || !strings.Contains(errOut, "Unknown command: ui") {
+		t.Fatalf("expected Unknown command: ui, got %d %q", code, errOut)
+	}
+
+	// 2. Run UI only via serve --no-mcp --no-rest
+	t.Setenv("TELESEND_UI_PASSWORD", "test-ui-password")
 	portUI := freePort(t)
 	ctxUI, cancelUI := context.WithCancel(context.Background())
 	defer cancelUI()
@@ -491,7 +544,7 @@ func TestCLIUICommand(t *testing.T) {
 	}
 	resChUI := make(chan runResult, 1)
 	go func() {
-		out, errS, c := run(ctxUI, env.tg, env.wrapper, []string{"ui", "--port", portUI}, "")
+		out, errS, c := run(ctxUI, env.tg, env.wrapper, []string{"serve", "--port", portUI, "--no-mcp", "--no-rest"}, "")
 		resChUI <- runResult{out, errS, c}
 	}()
 
@@ -515,7 +568,7 @@ func TestCLIUICommand(t *testing.T) {
 
 	cancelUI()
 	rrUI := <-resChUI
-	if !strings.Contains(rrUI.out, "Telesend UI listening on http://127.0.0.1:"+portUI+"/") {
+	if !strings.Contains(rrUI.out, "Telesend Web UI listening on http://127.0.0.1:"+portUI+"/") {
 		t.Fatalf("expected UI startup output: %q", rrUI.out)
 	}
 }

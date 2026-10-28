@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// UIAuth manages SQLite persistence for UI authentication and sessions.
+// UIAuth manages SQLite persistence for UI sessions.
 type UIAuth struct {
 	db *sql.DB
 }
@@ -14,34 +14,6 @@ type UIAuth struct {
 // NewUIAuth builds a UIAuth repository.
 func NewUIAuth(db *sql.DB) *UIAuth {
 	return &UIAuth{db: db}
-}
-
-// HasPassword reports whether an admin UI password has been set.
-func (u *UIAuth) HasPassword() (bool, error) {
-	var count int
-	err := u.db.QueryRow("SELECT COUNT(*) FROM ui_auth WHERE id = 1").Scan(&count)
-	return count > 0, err
-}
-
-// GetPasswordHash returns the stored password hash, or empty string if not configured.
-func (u *UIAuth) GetPasswordHash() (string, error) {
-	var hash string
-	err := u.db.QueryRow("SELECT password_hash FROM ui_auth WHERE id = 1").Scan(&hash)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return hash, err
-}
-
-// SetPassword stores or updates the password hash in ui_auth.
-func (u *UIAuth) SetPassword(hash string) error {
-	ts := now()
-	_, err := u.db.Exec(`
-		INSERT INTO ui_auth (id, password_hash, created_at, updated_at)
-		VALUES (1, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at
-	`, hash, ts, ts)
-	return err
 }
 
 // CreateSession persists a session token with an expiry timestamp.

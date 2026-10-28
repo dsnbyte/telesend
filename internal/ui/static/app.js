@@ -16,12 +16,9 @@
   const menuBtn = document.getElementById('menu-btn');
   const accountMenu = document.getElementById('account-menu');
   const logoutBtn = document.getElementById('logout-btn');
-  const openChangePwBtn = document.getElementById('open-change-pw-btn');
 
   // Modals
-  const modalSetup = document.getElementById('modal-setup');
   const modalLogin = document.getElementById('modal-login');
-  const modalChangePw = document.getElementById('modal-change-pw');
   const modalEditBot = document.getElementById('modal-edit-bot');
   const modalEditAlias = document.getElementById('modal-edit-alias');
 
@@ -137,11 +134,6 @@
         appVersionEl.textContent = `v${status.version}`;
       }
 
-      if (!status.initialized) {
-        openSetupModal();
-        return;
-      }
-
       if (!status.authenticated) {
         openLoginModal();
         return;
@@ -155,13 +147,6 @@
     }
   }
 
-  function openSetupModal() {
-    closeAllModals();
-    if (typeof modalSetup.showModal === 'function') {
-      modalSetup.showModal();
-    }
-  }
-
   function openLoginModal() {
     closeAllModals();
     if (typeof modalLogin.showModal === 'function') {
@@ -170,39 +155,10 @@
   }
 
   function closeAllModals() {
-    [modalSetup, modalLogin, modalChangePw, modalEditBot, modalEditAlias].forEach((m) => {
+    [modalLogin, modalEditBot, modalEditAlias].forEach((m) => {
       if (m && m.open && typeof m.close === 'function') m.close();
     });
   }
-
-  // Setup Form
-  document.getElementById('form-setup-pw').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const pw = document.getElementById('setup-pw').value;
-    const confirm = document.getElementById('setup-pw-confirm').value;
-    const errBox = document.getElementById('setup-error');
-    errBox.classList.add('hidden');
-
-    if (pw !== confirm) {
-      errBox.textContent = 'Passwords do not match.';
-      errBox.classList.remove('hidden');
-      return;
-    }
-
-    try {
-      await apiCall('/auth/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pw, confirmPassword: confirm }),
-      });
-      modalSetup.close();
-      showAlert('Master password configured successfully.');
-      loadDashboard();
-    } catch (err) {
-      errBox.textContent = err.message;
-      errBox.classList.remove('hidden');
-    }
-  });
 
   // Login Form
   document.getElementById('form-login').addEventListener('submit', async (e) => {
@@ -220,49 +176,6 @@
       document.getElementById('login-pw').value = '';
       modalLogin.close();
       loadDashboard();
-    } catch (err) {
-      errBox.textContent = err.message;
-      errBox.classList.remove('hidden');
-    }
-  });
-
-  // Change Password Form
-  openChangePwBtn.addEventListener('click', () => {
-    accountMenu.classList.add('hidden');
-    document.getElementById('form-change-pw').reset();
-    document.getElementById('change-pw-error').classList.add('hidden');
-    modalChangePw.showModal();
-  });
-
-  document.getElementById('close-change-pw').addEventListener('click', () => modalChangePw.close());
-  document.getElementById('cancel-change-pw').addEventListener('click', () => modalChangePw.close());
-
-  document.getElementById('form-change-pw').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const current = document.getElementById('current-pw').value;
-    const next = document.getElementById('new-pw').value;
-    const confirm = document.getElementById('new-pw-confirm').value;
-    const errBox = document.getElementById('change-pw-error');
-    errBox.classList.add('hidden');
-
-    if (next !== confirm) {
-      errBox.textContent = 'New passwords do not match.';
-      errBox.classList.remove('hidden');
-      return;
-    }
-
-    try {
-      await apiCall('/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword: current,
-          newPassword: next,
-          confirmPassword: confirm,
-        }),
-      });
-      modalChangePw.close();
-      showAlert('Master password updated.');
     } catch (err) {
       errBox.textContent = err.message;
       errBox.classList.remove('hidden');
@@ -891,6 +804,26 @@
       showAlert(err.message, true);
     }
   });
+
+  const formHashUIPw = document.getElementById('form-hash-ui-password');
+  if (formHashUIPw) {
+    formHashUIPw.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const val = document.getElementById('input-ui-password').value;
+      if (!val) return;
+      try {
+        const res = await apiCall('/hash', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'ui-password', value: val }),
+        });
+        document.getElementById('hash-ui-password-text').textContent = res.envLine;
+        document.getElementById('hash-ui-password-output').classList.remove('hidden');
+      } catch (err) {
+        showAlert(err.message, true);
+      }
+    });
+  }
 
   // Copy Buttons
   document.querySelectorAll('.copy-btn').forEach((btn) => {

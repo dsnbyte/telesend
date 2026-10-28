@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dsnbyte/telesend/internal/secret"
 	"github.com/dsnbyte/telesend/internal/testutil"
 	"github.com/dsnbyte/telesend/internal/ui"
 )
@@ -17,7 +18,14 @@ import (
 func setupTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Helper()
 	a, _ := testutil.NewApp(t)
-	server := ui.NewServer(a)
+	v, err := secret.NewVerifier("", "test_ui_password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := ui.NewServer(a, v)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ts := httptest.NewServer(server)
 	t.Cleanup(func() {
 		ts.Close()
@@ -101,15 +109,15 @@ func TestAuthLifecycleAndEndpoints(t *testing.T) {
 		return res, data
 	}
 
-	// 1. Initial auth status: not initialized
+	// 1. Initial auth status: initialized and not authenticated
 	res, data := doReq(http.MethodGet, "/api/ui/auth/status", nil)
 	if res.StatusCode != 200 {
 		t.Fatalf("status code %d", res.StatusCode)
 	}
 	var st map[string]any
 	_ = json.Unmarshal(data, &st)
-	if st["initialized"] != false || st["authenticated"] != false {
-		t.Fatalf("expected uninitialized: %+v", st)
+	if st["initialized"] != true || st["authenticated"] != false {
+		t.Fatalf("expected initialized and unauthenticated: %+v", st)
 	}
 
 	// 2. Accessing protected endpoint before login fails
@@ -118,59 +126,7 @@ func TestAuthLifecycleAndEndpoints(t *testing.T) {
 		t.Fatalf("expected 401, got %d", res.StatusCode)
 	}
 
-	// 3. Setup with password mismatch fails
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
-		"password":        "secret123",
-		"confirmPassword": "mismatch",
-	})
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 for password mismatch, got %d", res.StatusCode)
-	}
-
-	// 4. Setup with matching passwords succeeds
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
-		"password":        "secret123",
-		"confirmPassword": "secret123",
-	})
-	if res.StatusCode != 200 {
-		t.Fatalf("expected 200 for setup, got %d", res.StatusCode)
-	}
-	if jar["telesend_session"] == nil {
-		t.Fatal("expected telesend_session cookie to be set")
-	}
-
-	// 5. Auth status is now initialized and authenticated
-	res, data = doReq(http.MethodGet, "/api/ui/auth/status", nil)
-	_ = json.Unmarshal(data, &st)
-	if st["initialized"] != true || st["authenticated"] != true {
-		t.Fatalf("expected authenticated: %+v", st)
-	}
-
-	// 6. Setup cannot be run twice
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
-		"password":        "newpass",
-		"confirmPassword": "newpass",
-	})
-	if res.StatusCode != 400 {
-		t.Fatalf("expected 400 when setup run again, got %d", res.StatusCode)
-	}
-
-	// 7. Protected endpoint succeeds now
-	res, _ = doReq(http.MethodGet, "/api/ui/bots", nil)
-	if res.StatusCode != 200 {
-		t.Fatalf("expected 200 for /bots, got %d", res.StatusCode)
-	}
-
-	// 8. Logout clears session
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/logout", nil)
-	if res.StatusCode != 200 {
-		t.Fatalf("expected 200 for logout, got %d", res.StatusCode)
-	}
-	if jar["telesend_session"] != nil {
-		t.Fatal("expected session cookie to be removed after logout")
-	}
-
-	// 9. Login with wrong password fails
+	// 3. Login with wrong password fails
 	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
 		"password": "wrong_password",
 	})
@@ -178,9 +134,9 @@ func TestAuthLifecycleAndEndpoints(t *testing.T) {
 		t.Fatalf("expected 401 for wrong password, got %d", res.StatusCode)
 	}
 
-	// 10. Login with correct password succeeds
+	// 4. Login with correct password succeeds
 	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
-		"password": "secret123",
+		"password": "test_ui_password",
 	})
 	if res.StatusCode != 200 {
 		t.Fatalf("expected 200 for login, got %d", res.StatusCode)
@@ -189,38 +145,70 @@ func TestAuthLifecycleAndEndpoints(t *testing.T) {
 		t.Fatal("expected session cookie set after login")
 	}
 
-	// 11. Change password
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/change-password", map[string]string{
-		"currentPassword": "wrong",
-		"newPassword":     "new_secret_456",
-		"confirmPassword": "new_secret_456",
-	})
-	if res.StatusCode != 401 {
-		t.Fatalf("expected 401 for bad current password, got %d", res.StatusCode)
+	// 5. Auth status is now authenticated
+	res, data = doReq(http.MethodGet, "/api/ui/auth/status", nil)
+	_ = json.Unmarshal(data, &st)
+	if st["initialized"] != true || st["authenticated"] != true {
+		t.Fatalf("expected authenticated: %+v", st)
 	}
 
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/change-password", map[string]string{
-		"currentPassword": "secret123",
-		"newPassword":     "new_secret_456",
-		"confirmPassword": "new_secret_456",
-	})
+	// 6. Protected endpoint succeeds now
+	res, _ = doReq(http.MethodGet, "/api/ui/bots", nil)
 	if res.StatusCode != 200 {
-		t.Fatalf("expected 200 for change password, got %d", res.StatusCode)
+		t.Fatalf("expected 200 for /bots, got %d", res.StatusCode)
 	}
 
-	// Logout and test login with new password
-	doReq(http.MethodPost, "/api/ui/auth/logout", nil)
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
-		"password": "secret123",
-	})
-	if res.StatusCode != 401 {
-		t.Fatal("expected old password to fail")
-	}
-	res, _ = doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
-		"password": "new_secret_456",
-	})
+	// 7. Logout clears session
+	res, _ = doReq(http.MethodPost, "/api/ui/auth/logout", nil)
 	if res.StatusCode != 200 {
-		t.Fatalf("expected new password to succeed, got %d", res.StatusCode)
+		t.Fatalf("expected 200 for logout, got %d", res.StatusCode)
+	}
+	if jar["telesend_session"] != nil {
+		t.Fatal("expected session cookie to be removed after logout")
+	}
+
+	// 8. Protected endpoint fails again after logout
+	res, _ = doReq(http.MethodGet, "/api/ui/bots", nil)
+	if res.StatusCode != 401 {
+		t.Fatalf("expected 401 after logout, got %d", res.StatusCode)
+	}
+
+	// 9. Hashed password verifier support
+	rawHash, err := secret.Hash("hashed_master_pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vHashed, err := secret.NewVerifier(secret.Encode(rawHash), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aHashed, _ := testutil.NewApp(t)
+	defer aHashed.Close()
+	srvHashed, err := ui.NewServer(aHashed, vHashed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tsHashed := httptest.NewServer(srvHashed)
+	defer tsHashed.Close()
+
+	// Try wrong password on hashed server
+	bWrong, _ := json.Marshal(map[string]string{"password": "wrong"})
+	resHashedWrong, err := http.Post(tsHashed.URL+"/api/ui/auth/login", "application/json", bytes.NewReader(bWrong))
+	if err != nil || resHashedWrong.StatusCode != 401 {
+		t.Fatalf("expected 401 for wrong password on hashed server: %v, code %d", err, resHashedWrong.StatusCode)
+	}
+
+	// Try correct password on hashed server
+	bRight, _ := json.Marshal(map[string]string{"password": "hashed_master_pw"})
+	resHashedRight, err := http.Post(tsHashed.URL+"/api/ui/auth/login", "application/json", bytes.NewReader(bRight))
+	if err != nil || resHashedRight.StatusCode != 200 {
+		t.Fatalf("expected 200 for correct password on hashed server: %v, code %d", err, resHashedRight.StatusCode)
+	}
+
+	// 10. Nil verifier returns configuration error
+	_, err = ui.NewServer(aHashed, nil)
+	if err == nil {
+		t.Fatal("expected error with nil verifier")
 	}
 }
 
@@ -252,10 +240,9 @@ func TestBotsAndAliasesManagement(t *testing.T) {
 		return res, data
 	}
 
-	// Set password
-	doReq(http.MethodPost, "/api/ui/auth/setup", map[string]string{
-		"password":        "pass123",
-		"confirmPassword": "pass123",
+	// Login
+	doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{
+		"password": "test_ui_password",
 	})
 
 	// 1. Add bot
@@ -376,6 +363,22 @@ func TestBotsAndAliasesManagement(t *testing.T) {
 	_ = json.Unmarshal(data, &hashRes)
 	if !strings.HasPrefix(hashRes.EnvLine, "TELESEND_API_KEY_HASH=") {
 		t.Fatalf("unexpected hash output: %s", hashRes.EnvLine)
+	}
+
+	// 12b. Hash Tool with UI password
+	res, data = doReq(http.MethodPost, "/api/ui/hash", map[string]string{
+		"type":  "ui-password",
+		"value": "my-ui-password",
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 for ui hash tool, got %d", res.StatusCode)
+	}
+	var hashUIRes struct {
+		EnvLine string `json:"envLine"`
+	}
+	_ = json.Unmarshal(data, &hashUIRes)
+	if !strings.HasPrefix(hashUIRes.EnvLine, "TELESEND_UI_PASSWORD_HASH=") {
+		t.Fatalf("unexpected ui hash output: %s", hashUIRes.EnvLine)
 	}
 
 	// 13. Server Info

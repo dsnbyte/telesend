@@ -263,10 +263,10 @@ TELESEND_MCP_PASSWORD_HASH=replace-with-generated-hash
 telesend serve
 ```
 
-By default it listens on `http://127.0.0.1:3100` and starts both the REST API and the Remote MCP server. Use `--no-rest` to run only Remote MCP:
+By default it listens on `http://127.0.0.1:3100` and starts the Web UI, REST API, and Remote MCP server. Use `--no-rest`, `--no-mcp`, or `--no-ui` to disable specific services:
 
 ```sh
-telesend serve --no-rest
+telesend serve --no-rest --no-ui
 ```
 
 Use `--host` and `--port` to customize the address (for example, to listen on `0.0.0.0` in Docker or a container environment):

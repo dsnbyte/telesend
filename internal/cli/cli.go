@@ -74,8 +74,6 @@ func dispatch(ctx context.Context, args []string, a *app.App, ioStreams IO, json
 		return runAlias(args[1:], a, ioStreams, jsonMode)
 	case "msg", "message":
 		return runMsg(ctx, args[1:], a, ioStreams, jsonMode)
-	case "ui", "web":
-		return runUI(ctx, args[1:], a, ioStreams)
 	case "serve":
 		return runServe(ctx, args[1:], a, ioStreams)
 	case "mcp":
@@ -491,7 +489,7 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 	noUI := false
 	var filtered []string
 	for _, arg := range args {
-		switch arg {
+		switch strings.ToLower(arg) {
 		case "--no-mcp":
 			noMCP = true
 		case "--no-rest", "--no-api":
@@ -502,8 +500,8 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 			filtered = append(filtered, arg)
 		}
 	}
-	if noMCP && noREST {
-		return apperr.New(apperr.Validation, "Cannot disable both REST and MCP servers")
+	if noMCP && noREST && noUI {
+		return apperr.New(apperr.Validation, "Cannot disable all services (REST, MCP, and UI)")
 	}
 
 	opts, positionals, err := parseOptions(filtered)
@@ -566,60 +564,16 @@ func runServe(ctx context.Context, args []string, a *app.App, ioStreams IO) erro
 
 	var uiHandler http.Handler
 	if !noUI {
-		uiHandler = ui.NewServer(a)
-	}
-
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	boundHostPort := net.JoinHostPort(host, portStr)
-
-	if !noREST && !noMCP {
-		fmt.Fprintf(ioStreams.Out, "Telesend server listening on http://%s/\n", boundHostPort)
-		fmt.Fprintf(ioStreams.Out, "  REST API:   http://%s/\n", boundHostPort)
-		fmt.Fprintf(ioStreams.Out, "  Remote MCP: http://%s/ (public %s)\n", boundHostPort, mcpURL.String())
-	} else if !noREST {
-		fmt.Fprintf(ioStreams.Out, "Telesend REST API listening on http://%s/\n", boundHostPort)
-	} else {
-		fmt.Fprintf(ioStreams.Out, "Telesend remote MCP listening on http://%s/ (public %s)\n", boundHostPort, mcpURL.String())
-	}
-
-	server := &http.Server{Handler: combinedServerHandler{rest: restHandler, mcp: mcpHandler, ui: uiHandler}}
-	go func() {
-		<-ctx.Done()
-		server.Close()
-	}()
-	err = server.Serve(ln)
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
-}
-
-func runUI(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
-	opts, positionals, err := parseOptions(args)
-	if err != nil {
-		return err
-	}
-	if len(positionals) > 0 {
-		return apperr.Newf(apperr.Validation, "Unexpected argument: %s", positionals[0])
-	}
-	host := "127.0.0.1"
-	if h, ok := opts["host"]; ok && h != "" {
-		host = h
-	}
-	port := 3100
-	if p, ok := opts["port"]; ok {
-		port, err = strconv.Atoi(p)
-		if err != nil || port <= 0 {
-			return apperr.New(apperr.Validation, "--port must be a positive integer")
+		v, err := secret.NewVerifier(os.Getenv("TELESEND_UI_PASSWORD_HASH"), os.Getenv("TELESEND_UI_PASSWORD"))
+		if err != nil {
+			return err
+		}
+		uiHandler, err = ui.NewServer(a, v)
+		if err != nil {
+			return err
 		}
 	}
 
-	uiHandler := ui.NewServer(a)
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -628,9 +582,37 @@ func runUI(ctx context.Context, args []string, a *app.App, ioStreams IO) error {
 	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
 	boundHostPort := net.JoinHostPort(host, portStr)
 
-	fmt.Fprintf(ioStreams.Out, "Telesend UI listening on http://%s/\n", boundHostPort)
+	servicesCount := 0
+	if !noREST {
+		servicesCount++
+	}
+	if !noMCP {
+		servicesCount++
+	}
+	if !noUI {
+		servicesCount++
+	}
 
-	server := &http.Server{Handler: uiHandler}
+	if servicesCount > 1 {
+		fmt.Fprintf(ioStreams.Out, "Telesend server listening on http://%s/\n", boundHostPort)
+		if !noREST {
+			fmt.Fprintf(ioStreams.Out, "  REST API:   http://%s/\n", boundHostPort)
+		}
+		if !noMCP {
+			fmt.Fprintf(ioStreams.Out, "  Remote MCP: http://%s/ (public %s)\n", boundHostPort, mcpURL.String())
+		}
+		if !noUI {
+			fmt.Fprintf(ioStreams.Out, "  Web UI:     http://%s/\n", boundHostPort)
+		}
+	} else if !noREST {
+		fmt.Fprintf(ioStreams.Out, "Telesend REST API listening on http://%s/\n", boundHostPort)
+	} else if !noMCP {
+		fmt.Fprintf(ioStreams.Out, "Telesend remote MCP listening on http://%s/ (public %s)\n", boundHostPort, mcpURL.String())
+	} else if !noUI {
+		fmt.Fprintf(ioStreams.Out, "Telesend Web UI listening on http://%s/\n", boundHostPort)
+	}
+
+	server := &http.Server{Handler: combinedServerHandler{rest: restHandler, mcp: mcpHandler, ui: uiHandler}}
 	go func() {
 		<-ctx.Done()
 		server.Close()
@@ -652,6 +634,10 @@ func (h combinedServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if isMCPPath(r.URL.Path) {
 		if h.mcp != nil {
 			h.mcp.ServeHTTP(w, r)
+			return
+		}
+		if (r.URL.Path == "/icon.png" || r.URL.Path == "/favicon.ico" || r.URL.Path == "/apple-touch-icon.png" || r.URL.Path == "/telesend-icon.png") && h.ui != nil {
+			h.ui.ServeHTTP(w, r)
 			return
 		}
 		http.NotFound(w, r)
@@ -964,7 +950,6 @@ Usage:
   telesend [--json] alias list [group|private]
   telesend [--json] alias update|remove
   telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]
-  telesend ui [--host <host>] [--port <port>]
   telesend serve [--host <host>] [--port <port>] [--no-mcp] [--no-rest] [--no-ui]
   telesend mcp [--config <path>] [--allow-path <path> ...]
   telesend hash-key

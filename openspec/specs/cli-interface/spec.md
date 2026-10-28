@@ -40,22 +40,26 @@ The CLI SHALL expose content-specific send commands that accept a direct chat ID
 - **THEN** the CLI prints a concise actionable error to standard error and exits nonzero
 
 ### Requirement: Start service modes from the CLI
-The CLI SHALL provide commands to start the unified HTTP service (REST API and Remote MCP) and the local stdio MCP server, passing service-specific startup options to those modes.
+The CLI SHALL provide commands to start the unified HTTP service (REST API, Remote MCP, and Web UI) and the local stdio MCP server, passing service-specific startup options to those modes.
 
 #### Scenario: Start unified server mode
 - **WHEN** an operator runs `telesend serve` with valid configuration
-- **THEN** the process starts both the authenticated REST service and the remote MCP service on a single unified port and reports its bound address
+- **THEN** the process starts the authenticated REST service, the remote MCP service, and the Web UI on a single unified port and reports its bound address
 
 #### Scenario: Start REST only
-- **WHEN** an operator runs `telesend serve --no-mcp` with valid REST configuration
-- **THEN** the process starts only the REST service and disables remote MCP routes
+- **WHEN** an operator runs `telesend serve --no-mcp --no-ui` with valid REST configuration
+- **THEN** the process starts only the REST service and disables remote MCP and Web UI routes
 
 #### Scenario: Start Remote MCP only
-- **WHEN** an operator runs `telesend serve --no-rest` with valid MCP configuration
-- **THEN** the process starts only the remote MCP service and disables REST routes
+- **WHEN** an operator runs `telesend serve --no-rest --no-ui` with valid MCP configuration
+- **THEN** the process starts only the remote MCP service and disables REST and Web UI routes
 
-#### Scenario: Disable both services
-- **WHEN** an operator runs `telesend serve --no-mcp --no-rest`
+#### Scenario: Start Web UI only
+- **WHEN** an operator runs `telesend serve --no-mcp --no-rest` with valid UI configuration
+- **THEN** the process starts only the Web UI service and disables REST and remote MCP routes
+
+#### Scenario: Disable all services
+- **WHEN** an operator runs `telesend serve --no-mcp --no-rest --no-ui`
 - **THEN** the process exits with a validation error
 
 #### Scenario: Start stdio MCP mode

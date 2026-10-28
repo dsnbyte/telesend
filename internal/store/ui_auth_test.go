@@ -14,46 +14,6 @@ func TestUIAuthRepository(t *testing.T) {
 
 	auth := NewUIAuth(db)
 
-	// Initially no password
-	has, err := auth.HasPassword()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if has {
-		t.Fatal("expected no password initially")
-	}
-
-	h, err := auth.GetPasswordHash()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if h != "" {
-		t.Fatalf("expected empty hash, got %q", h)
-	}
-
-	// Set password
-	if err := auth.SetPassword("hashed_pw_1"); err != nil {
-		t.Fatal(err)
-	}
-	has, err = auth.HasPassword()
-	if err != nil || !has {
-		t.Fatalf("expected password to exist: %v %v", has, err)
-	}
-
-	h, err = auth.GetPasswordHash()
-	if err != nil || h != "hashed_pw_1" {
-		t.Fatalf("expected hashed_pw_1, got %q %v", h, err)
-	}
-
-	// Update password
-	if err := auth.SetPassword("hashed_pw_2"); err != nil {
-		t.Fatal(err)
-	}
-	h, err = auth.GetPasswordHash()
-	if err != nil || h != "hashed_pw_2" {
-		t.Fatalf("expected hashed_pw_2, got %q %v", h, err)
-	}
-
 	// Sessions
 	token := "session_tok_1"
 	if err := auth.CreateSession(token, 1*time.Hour); err != nil {

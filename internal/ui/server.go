@@ -33,12 +33,16 @@ const (
 
 // Server serves the web UI and handles its internal API.
 type Server struct {
-	app *app.App
+	app      *app.App
+	verifier *secret.Verifier
 }
 
-// NewServer constructs a UI server backed by an App.
-func NewServer(a *app.App) *Server {
-	return &Server{app: a}
+// NewServer constructs a UI server backed by an App and Verifier.
+func NewServer(a *app.App, verifier *secret.Verifier) (*Server, error) {
+	if verifier == nil {
+		return nil, apperr.New(apperr.Configuration, "TELESEND_UI_PASSWORD or TELESEND_UI_PASSWORD_HASH is required to start the Web UI")
+	}
+	return &Server{app: a, verifier: verifier}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -96,11 +100,6 @@ func (s *Server) routeAPI(w http.ResponseWriter, r *http.Request, path string) e
 	switch path {
 	case "/auth/status":
 		return s.handleAuthStatus(w, r)
-	case "/auth/setup":
-		if r.Method != http.MethodPost {
-			return apperr.New(apperr.Validation, "Method not allowed")
-		}
-		return s.handleAuthSetup(w, r)
 	case "/auth/login":
 		if r.Method != http.MethodPost {
 			return apperr.New(apperr.Validation, "Method not allowed")
@@ -120,11 +119,6 @@ func (s *Server) routeAPI(w http.ResponseWriter, r *http.Request, path string) e
 
 	// Protected auth routes
 	switch path {
-	case "/auth/change-password":
-		if r.Method != http.MethodPost {
-			return apperr.New(apperr.Validation, "Method not allowed")
-		}
-		return s.handleAuthChangePassword(w, r)
 	case "/auth/logout":
 		if r.Method != http.MethodPost {
 			return apperr.New(apperr.Validation, "Method not allowed")
@@ -235,63 +229,14 @@ func generateToken() (string, error) {
 // Auth Handlers
 
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) error {
-	hasPassword, err := s.app.UIAuth.HasPassword()
-	if err != nil {
-		return err
-	}
 	token := s.getSessionToken(r)
 	authenticated, _ := s.app.UIAuth.ValidateSession(token)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"initialized":   hasPassword,
+		"initialized":   true,
 		"authenticated": authenticated,
 		"version":       version.Version,
 	})
-	return nil
-}
-
-func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) error {
-	hasPassword, err := s.app.UIAuth.HasPassword()
-	if err != nil {
-		return err
-	}
-	if hasPassword {
-		return apperr.New(apperr.Validation, "UI password has already been configured")
-	}
-
-	var body struct {
-		Password        string `json:"password"`
-		ConfirmPassword string `json:"confirmPassword"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return apperr.New(apperr.Validation, "Invalid request body")
-	}
-	pw := strings.TrimSpace(body.Password)
-	if pw == "" {
-		return apperr.New(apperr.Validation, "Password cannot be empty")
-	}
-	if pw != strings.TrimSpace(body.ConfirmPassword) {
-		return apperr.New(apperr.Validation, "Passwords do not match")
-	}
-
-	hash, err := secret.Hash(pw)
-	if err != nil {
-		return err
-	}
-	if err := s.app.UIAuth.SetPassword(hash); err != nil {
-		return err
-	}
-
-	token, err := generateToken()
-	if err != nil {
-		return err
-	}
-	if err := s.app.UIAuth.CreateSession(token, sessionDuration); err != nil {
-		return err
-	}
-	s.setSessionCookie(w, r, token, int(sessionDuration.Seconds()))
-
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	return nil
 }
 
@@ -302,14 +247,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) error {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		return apperr.New(apperr.Validation, "Invalid request body")
 	}
-	hash, err := s.app.UIAuth.GetPasswordHash()
-	if err != nil {
-		return err
-	}
-	if hash == "" {
-		return apperr.New(apperr.Validation, "Password not configured; initial setup required")
-	}
-	if !secret.Verify(body.Password, hash) {
+	if !s.verifier.Verify(body.Password) {
 		return apperr.New(apperr.Unauthorized, "Incorrect password")
 	}
 
@@ -321,50 +259,6 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.setSessionCookie(w, r, token, int(sessionDuration.Seconds()))
-
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	return nil
-}
-
-func (s *Server) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) error {
-	var body struct {
-		CurrentPassword string `json:"currentPassword"`
-		NewPassword     string `json:"newPassword"`
-		ConfirmPassword string `json:"confirmPassword"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return apperr.New(apperr.Validation, "Invalid request body")
-	}
-	hash, err := s.app.UIAuth.GetPasswordHash()
-	if err != nil {
-		return err
-	}
-	if hash == "" || !secret.Verify(body.CurrentPassword, hash) {
-		return apperr.New(apperr.Unauthorized, "Current password is incorrect")
-	}
-	newPw := strings.TrimSpace(body.NewPassword)
-	if newPw == "" {
-		return apperr.New(apperr.Validation, "New password cannot be empty")
-	}
-	if newPw != strings.TrimSpace(body.ConfirmPassword) {
-		return apperr.New(apperr.Validation, "New password confirmation does not match")
-	}
-
-	newHash, err := secret.Hash(newPw)
-	if err != nil {
-		return err
-	}
-	if err := s.app.UIAuth.SetPassword(newHash); err != nil {
-		return err
-	}
-
-	// Revoke old sessions and issue a new session token for the current client
-	_ = s.app.UIAuth.DeleteAllSessions()
-	newToken, err := generateToken()
-	if err == nil {
-		_ = s.app.UIAuth.CreateSession(newToken, sessionDuration)
-		s.setSessionCookie(w, r, newToken, int(sessionDuration.Seconds()))
-	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	return nil
@@ -796,8 +690,11 @@ func (s *Server) handleHash(w http.ResponseWriter, r *http.Request) error {
 	encoded := secret.Encode(rawHash)
 
 	envKey := "TELESEND_API_KEY_HASH"
-	if body.Type == "password" {
+	switch body.Type {
+	case "password", "mcp":
 		envKey = "TELESEND_MCP_PASSWORD_HASH"
+	case "ui-password", "ui_password", "ui":
+		envKey = "TELESEND_UI_PASSWORD_HASH"
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
