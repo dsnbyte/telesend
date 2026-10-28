@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/dsnbyte/telesend/assets"
 	"github.com/dsnbyte/telesend/internal/app"
 	"github.com/dsnbyte/telesend/internal/apperr"
+	"github.com/dsnbyte/telesend/internal/paths"
 	"github.com/dsnbyte/telesend/internal/secret"
 	"github.com/dsnbyte/telesend/internal/store"
 	"github.com/dsnbyte/telesend/internal/telegram"
@@ -33,8 +35,46 @@ const (
 
 // Server serves the web UI and handles its internal API.
 type Server struct {
-	app      *app.App
-	verifier *secret.Verifier
+	app             *app.App
+	verifier        *secret.Verifier
+	historyPageSize int
+}
+
+func loadHistoryPageSize() int {
+	if s := os.Getenv("TELESEND_HISTORY_PAGE_SIZE"); s != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			return n
+		}
+	}
+	candidates := []string{}
+	if p, err := paths.Default(); err == nil && p.ConfigFile != "" {
+		candidates = append(candidates, p.ConfigFile)
+	}
+	candidates = append(candidates, "config.json", filepath.Join("data", "config.json"))
+
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var cfg struct {
+			UI struct {
+				HistoryPageSize int `json:"history_page_size"`
+			} `json:"ui"`
+			History struct {
+				PageSize int `json:"page_size"`
+			} `json:"history"`
+		}
+		if json.Unmarshal(data, &cfg) == nil {
+			if cfg.UI.HistoryPageSize > 0 {
+				return cfg.UI.HistoryPageSize
+			}
+			if cfg.History.PageSize > 0 {
+				return cfg.History.PageSize
+			}
+		}
+	}
+	return 20
 }
 
 // NewServer constructs a UI server backed by an App and Verifier.
@@ -42,7 +82,18 @@ func NewServer(a *app.App, verifier *secret.Verifier) (*Server, error) {
 	if verifier == nil {
 		return nil, apperr.New(apperr.Configuration, "TELESEND_UI_PASSWORD or TELESEND_UI_PASSWORD_HASH is required to start the Web UI")
 	}
-	return &Server{app: a, verifier: verifier}, nil
+	return &Server{
+		app:             a,
+		verifier:        verifier,
+		historyPageSize: loadHistoryPageSize(),
+	}, nil
+}
+
+// SetHistoryPageSize overrides the pagination size.
+func (s *Server) SetHistoryPageSize(n int) {
+	if n > 0 {
+		s.historyPageSize = n
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -366,14 +417,24 @@ func (s *Server) handleServerInfo(w http.ResponseWriter, r *http.Request) error 
 
 func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
-	var limit int
+	limit := s.historyPageSize
+	if limit <= 0 {
+		limit = 20
+	}
 	if l := q.Get("limit"); l != "" {
 		if n, err := strconv.Atoi(l); err == nil && n > 0 {
 			limit = n
 		}
 	}
+	var offset int
+	if o := q.Get("offset"); o != "" {
+		if n, err := strconv.Atoi(o); err == nil && n >= 0 {
+			offset = n
+		}
+	}
 	entries, err := s.app.History.List(store.HistoryFilter{
 		Limit:       limit,
+		Offset:      offset,
 		MessageType: q.Get("type"),
 		Bot:         q.Get("bot"),
 		Recipient:   q.Get("recipient"),
@@ -384,8 +445,13 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) error
 	if entries == nil {
 		entries = []store.HistoryEntry{}
 	}
+	total, _ := s.app.History.Count()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data":          entries,
+		"total":         total,
+		"pageSize":      limit,
+		"offset":        offset,
+		"hasMore":       len(entries) == limit,
 		"retentionDays": s.app.History.RetentionDays(),
 	})
 	return nil

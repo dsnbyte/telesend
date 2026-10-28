@@ -3,6 +3,7 @@ package ui_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -474,5 +475,110 @@ func TestBotsAndAliasesManagement(t *testing.T) {
 	_ = json.Unmarshal(data, &histRes)
 	if len(histRes.Data) != 0 {
 		t.Fatalf("expected 0 history entries after clear, got %d", len(histRes.Data))
+	}
+}
+
+func TestHistoryPaginationAndConfig(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	jar := make(map[string]*http.Cookie)
+	doReq := func(method, path string, body any) (*http.Response, []byte) {
+		var r io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			r = bytes.NewReader(b)
+		}
+		req, _ := http.NewRequest(method, ts.URL+path, r)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		for _, c := range jar {
+			req.AddCookie(c)
+		}
+		res, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range res.Cookies() {
+			jar[c.Name] = c
+		}
+		data, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res, data
+	}
+
+	// Login
+	doReq(http.MethodPost, "/api/ui/auth/login", map[string]string{"password": "test_ui_password"})
+	// Register bot & alias
+	doReq(http.MethodPost, "/api/ui/bots", map[string]string{"token": "page_bot_token"})
+	doReq(http.MethodPost, "/api/ui/aliases", map[string]any{"name": "team", "chatId": "-100777"})
+
+	// Send 5 messages
+	for i := 1; i <= 5; i++ {
+		doReq(http.MethodPost, "/api/ui/send", map[string]any{
+			"type":    "text",
+			"to":      "team",
+			"payload": map[string]any{"text": fmt.Sprintf("message %d", i)},
+		})
+	}
+
+	// Fetch page 1 with limit=2
+	res, data := doReq(http.MethodGet, "/api/ui/history?limit=2&offset=0", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", res.StatusCode, string(data))
+	}
+	var page1 struct {
+		Data     []store.HistoryEntry `json:"data"`
+		Total    int                  `json:"total"`
+		PageSize int                  `json:"pageSize"`
+		Offset   int                  `json:"offset"`
+		HasMore  bool                 `json:"hasMore"`
+	}
+	_ = json.Unmarshal(data, &page1)
+	if len(page1.Data) != 2 {
+		t.Fatalf("expected 2 entries on page 1, got %d", len(page1.Data))
+	}
+	if page1.Total != 5 {
+		t.Fatalf("expected total 5, got %d", page1.Total)
+	}
+	if !page1.HasMore {
+		t.Fatal("expected hasMore to be true")
+	}
+	// Verify newest is first: message 5 should be at index 0
+	if page1.Data[0].Summary != "message 5" {
+		t.Fatalf("expected newest message ('message 5') first, got %q", page1.Data[0].Summary)
+	}
+
+	// Fetch page 2 with limit=2 & offset=2
+	res, data = doReq(http.MethodGet, "/api/ui/history?limit=2&offset=2", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", res.StatusCode, string(data))
+	}
+	var page2 struct {
+		Data    []store.HistoryEntry `json:"data"`
+		HasMore bool                 `json:"hasMore"`
+	}
+	_ = json.Unmarshal(data, &page2)
+	if len(page2.Data) != 2 {
+		t.Fatalf("expected 2 entries on page 2, got %d", len(page2.Data))
+	}
+	if page2.Data[0].Summary != "message 3" {
+		t.Fatalf("expected 'message 3', got %q", page2.Data[0].Summary)
+	}
+	if !page2.HasMore {
+		t.Fatal("expected hasMore to be true on page 2")
+	}
+
+	// Fetch page 3 with limit=2 & offset=4 (last remaining 1)
+	res, data = doReq(http.MethodGet, "/api/ui/history?limit=2&offset=4", nil)
+	var page3 struct {
+		Data    []store.HistoryEntry `json:"data"`
+		HasMore bool                 `json:"hasMore"`
+	}
+	_ = json.Unmarshal(data, &page3)
+	if len(page3.Data) != 1 {
+		t.Fatalf("expected 1 entry on page 3, got %d", len(page3.Data))
+	}
+	if page3.HasMore {
+		t.Fatal("expected hasMore to be false on page 3")
 	}
 }

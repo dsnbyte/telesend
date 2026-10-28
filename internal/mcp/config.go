@@ -18,6 +18,12 @@ type FileConfig struct {
 
 // Config is the on-disk Telesend configuration (config.json).
 type Config struct {
+	UI struct {
+		HistoryPageSize int `json:"history_page_size,omitempty"`
+	} `json:"ui,omitempty"`
+	History struct {
+		PageSize int `json:"page_size,omitempty"`
+	} `json:"history,omitempty"`
 	MCP struct {
 		Files FileConfig `json:"files"`
 	} `json:"mcp"`

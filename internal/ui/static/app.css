@@ -619,6 +619,7 @@ textarea {
   padding: 0;
   max-width: 400px;
   width: calc(100% - 32px);
+  color: var(--text);
 }
 
 .app-modal::backdrop {
@@ -634,10 +635,21 @@ textarea {
 
 .modal-card {
   background-color: var(--bg-card);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   padding: 20px;
+}
+
+.modal-card p {
+  color: var(--text);
+}
+
+.modal-prompt {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
 }
 
 .modal-header {

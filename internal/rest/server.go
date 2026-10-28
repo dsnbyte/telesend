@@ -250,8 +250,15 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) error {
 					limit = n
 				}
 			}
+			var offset int
+			if o := q.Get("offset"); o != "" {
+				if n, err := strconv.Atoi(o); err == nil && n >= 0 {
+					offset = n
+				}
+			}
 			entries, err := s.app.History.List(store.HistoryFilter{
 				Limit:       limit,
+				Offset:      offset,
 				MessageType: q.Get("type"),
 				Bot:         q.Get("bot"),
 				Recipient:   q.Get("recipient"),

@@ -25,6 +25,7 @@
   const modalEditAlias = document.getElementById('modal-edit-alias');
   const modalHistoryDetail = document.getElementById('modal-history-detail');
   const modalDeleteHistory = document.getElementById('modal-delete-history');
+  const modalClearHistory = document.getElementById('modal-clear-history');
 
   // Tabs
   const navTabs = document.querySelectorAll('.nav-item');
@@ -163,7 +164,7 @@
   }
 
   function closeAllModals() {
-    [modalLogin, modalEditBot, modalEditAlias, modalHistoryDetail, modalDeleteHistory].forEach((m) => {
+    [modalLogin, modalEditBot, modalEditAlias, modalHistoryDetail, modalDeleteHistory, modalClearHistory].forEach((m) => {
       if (m && m.open && typeof m.close === 'function') m.close();
     });
   }
@@ -850,23 +851,70 @@
   });
 
   // DELIVERY HISTORY MANAGEMENT
-  async function loadHistory() {
+  let historyPageSize = 20;
+  let historyHasMore = false;
+  let historyLoading = false;
+
+  async function loadHistory(append = false) {
+    if (historyLoading) return;
+    historyLoading = true;
+
     const listEl = document.getElementById('history-list');
+    const loadMoreBtn = document.getElementById('btn-history-load-more');
+
+    const offset = append ? historyList.length : 0;
+    if (loadMoreBtn && append) {
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = 'Loading...';
+    }
+
     try {
-      const res = await apiCall('/history');
-      historyList = res.data || [];
+      const res = await apiCall(`/history?offset=${offset}&limit=${historyPageSize}`);
+      const newItems = res.data || [];
+      if (res.pageSize) {
+        historyPageSize = res.pageSize;
+      }
+      if (append) {
+        historyList = historyList.concat(newItems);
+      } else {
+        historyList = newItems;
+      }
+      historyHasMore = !!res.hasMore;
+
+      const totalCount = typeof res.total === 'number' ? res.total : historyList.length;
       const countEl = document.getElementById('tab-history-count');
-      if (countEl) countEl.textContent = String(historyList.length);
+      if (countEl) countEl.textContent = String(totalCount);
+
       if (res.retentionDays) {
         historyRetentionDays = res.retentionDays;
         const retEl = document.getElementById('history-retention-text');
         if (retEl) retEl.textContent = String(res.retentionDays);
       }
+
       renderHistory();
+      updateLoadMoreButton();
     } catch (err) {
-      if (listEl) {
+      if (!append && listEl) {
         listEl.innerHTML = `<div class="empty-state text-danger">Failed to load history: ${escapeHtml(err.message)}</div>`;
+      } else {
+        showAlert(err.message, true);
       }
+    } finally {
+      historyLoading = false;
+      if (loadMoreBtn) {
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.textContent = 'Load More Messages';
+      }
+    }
+  }
+
+  function updateLoadMoreButton() {
+    const loadMoreContainer = document.getElementById('history-load-more-container');
+    if (!loadMoreContainer) return;
+    if (historyHasMore) {
+      loadMoreContainer.classList.remove('hidden');
+    } else {
+      loadMoreContainer.classList.add('hidden');
     }
   }
 
@@ -1017,36 +1065,62 @@
   }
 
   if (formDeleteHistory) {
-    formDeleteHistory.addEventListener('submit', async (e) => {
+    formDeleteHistory.addEventListener('submit', (e) => {
       e.preventDefault();
       if (!pendingDeleteHistoryId) return;
 
+      const targetId = Number(pendingDeleteHistoryId);
       const deleteTelegram = deleteHistoryTelegram ? deleteHistoryTelegram.checked : false;
-      const endpoint = `/history/${pendingDeleteHistoryId}${deleteTelegram ? '?delete_telegram=true' : ''}`;
+      const endpoint = `/history/${targetId}${deleteTelegram ? '?delete_telegram=true' : ''}`;
 
-      if (deleteHistoryError) {
-        deleteHistoryError.textContent = '';
-        deleteHistoryError.classList.add('hidden');
+      // Find item in historyList to allow rollback if request fails
+      const itemIndex = historyList.findIndex((item) => Number(item.id) === targetId);
+      const removedItem = itemIndex !== -1 ? historyList[itemIndex] : null;
+
+      // Close modal immediately for instant feedback
+      if (modalDeleteHistory && typeof modalDeleteHistory.close === 'function') {
+        modalDeleteHistory.close();
       }
 
-      try {
-        const res = await apiCall(endpoint, { method: 'DELETE' });
-        if (modalDeleteHistory && typeof modalDeleteHistory.close === 'function') {
-          modalDeleteHistory.close();
+      // Optimistic update: remove item from local list and update DOM immediately
+      if (removedItem) {
+        historyList.splice(itemIndex, 1);
+        const countEl = document.getElementById('tab-history-count');
+        if (countEl) {
+          const current = parseInt(countEl.textContent, 10);
+          if (!isNaN(current) && current > 0) {
+            countEl.textContent = String(current - 1);
+          }
         }
-        if (res && res.data && res.data.telegramDeleted) {
-          showAlert(`History record #${pendingDeleteHistoryId} and Telegram message deleted.`);
-        } else {
-          showAlert(`History record #${pendingDeleteHistoryId} removed.`);
-        }
-        loadHistory();
-      } catch (err) {
-        if (deleteHistoryError) {
-          deleteHistoryError.textContent = err.message;
-          deleteHistoryError.classList.remove('hidden');
-        }
-        showAlert(err.message, true);
+        renderHistory();
+        updateLoadMoreButton();
       }
+
+      // Perform API call in background
+      apiCall(endpoint, { method: 'DELETE' })
+        .then((res) => {
+          if (res && res.data && res.data.telegramDeleted) {
+            showAlert(`History record #${targetId} and Telegram message deleted.`);
+          } else {
+            showAlert(`History record #${targetId} removed.`);
+          }
+        })
+        .catch((err) => {
+          // Rollback: restore item to historyList and re-render
+          if (removedItem) {
+            historyList.splice(itemIndex, 0, removedItem);
+            const countEl = document.getElementById('tab-history-count');
+            if (countEl) {
+              const current = parseInt(countEl.textContent, 10);
+              if (!isNaN(current)) {
+                countEl.textContent = String(current + 1);
+              }
+            }
+            renderHistory();
+            updateLoadMoreButton();
+          }
+          showAlert(err.message, true);
+        });
     });
   }
 
@@ -1054,18 +1128,57 @@
   const btnRefreshHistory = document.getElementById('btn-refresh-history');
   if (btnRefreshHistory) {
     btnRefreshHistory.addEventListener('click', () => {
-      loadHistory();
+      loadHistory(false);
     });
   }
 
+  const btnHistoryLoadMore = document.getElementById('btn-history-load-more');
+  if (btnHistoryLoadMore) {
+    btnHistoryLoadMore.addEventListener('click', () => {
+      loadHistory(true);
+    });
+  }
+
+  // Clear History Modal
   const btnClearHistory = document.getElementById('btn-clear-history');
+  const formClearHistory = document.getElementById('form-clear-history');
+  const closeClearHistBtn = document.getElementById('close-clear-history');
+  const cancelClearHistBtn = document.getElementById('cancel-clear-history');
+
   if (btnClearHistory) {
-    btnClearHistory.addEventListener('click', async () => {
-      if (!confirm('Clear all message delivery history?')) return;
+    btnClearHistory.addEventListener('click', () => {
+      if (modalClearHistory && typeof modalClearHistory.showModal === 'function') {
+        modalClearHistory.showModal();
+      }
+    });
+  }
+
+  if (closeClearHistBtn) {
+    closeClearHistBtn.addEventListener('click', () => {
+      if (modalClearHistory && typeof modalClearHistory.close === 'function') modalClearHistory.close();
+    });
+  }
+  if (cancelClearHistBtn) {
+    cancelClearHistBtn.addEventListener('click', () => {
+      if (modalClearHistory && typeof modalClearHistory.close === 'function') modalClearHistory.close();
+    });
+  }
+
+  if (formClearHistory) {
+    formClearHistory.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (modalClearHistory && typeof modalClearHistory.close === 'function') {
+        modalClearHistory.close();
+      }
       try {
         await apiCall('/history', { method: 'DELETE' });
         showAlert('All message delivery history cleared.');
-        loadHistory();
+        historyList = [];
+        historyHasMore = false;
+        const countEl = document.getElementById('tab-history-count');
+        if (countEl) countEl.textContent = '0';
+        renderHistory();
+        updateLoadMoreButton();
       } catch (err) {
         showAlert(err.message, true);
       }

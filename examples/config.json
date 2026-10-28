@@ -1,4 +1,7 @@
 {
+  "ui": {
+    "history_page_size": 20
+  },
   "mcp": {
     "files": {
       "allow_paths": ["~/Documents/telesend"],
