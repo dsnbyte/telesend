@@ -197,14 +197,18 @@ func runAlias(args []string, a *app.App, ioStreams IO, jsonMode bool) error {
 	switch args[0] {
 	case "add":
 		if len(args) < 3 {
-			return apperr.New(apperr.Validation, "Usage: telesend alias add <name> <chat-id> [--thread-id <id>]")
+			return apperr.New(apperr.Validation, "Usage: telesend alias add <name> <chat-id>[#<thread_id>] [--thread-id <id>]")
 		}
-		name, chatID := args[1], args[2]
+		name, rawChatID := args[1], args[2]
+		chatID, inlineThread, err := parseChatIDAndThread(rawChatID)
+		if err != nil {
+			return err
+		}
 		opts, _, err := parseOptions(args[3:])
 		if err != nil {
 			return err
 		}
-		var thread *int
+		thread := inlineThread
 		if t, ok := opts["thread-id"]; ok {
 			v, err := strconv.Atoi(t)
 			if err != nil || v <= 0 {
@@ -311,7 +315,7 @@ func runAlias(args []string, a *app.App, ioStreams IO, jsonMode bool) error {
 		if existing == nil {
 			return apperr.Newf(apperr.NotFound, "Alias %q was not found", name)
 		}
-		opts, _, err := parseOptions(args[2:])
+		opts, positionals, err := parseOptions(args[2:])
 		if err != nil {
 			return err
 		}
@@ -323,8 +327,23 @@ func runAlias(args []string, a *app.App, ioStreams IO, jsonMode bool) error {
 		if n, ok := opts["name"]; ok {
 			in.Name = n
 		}
+		var rawChatID string
 		if c, ok := opts["chat-id"]; ok {
-			in.ChatID = c
+			rawChatID = c
+		} else if len(positionals) > 0 {
+			rawChatID = positionals[0]
+		}
+		if rawChatID != "" {
+			chatID, inlineThread, err := parseChatIDAndThread(rawChatID)
+			if err != nil {
+				return err
+			}
+			in.ChatID = chatID
+			if inlineThread != nil {
+				in.MessageThreadID = inlineThread
+			} else if store.TypeOf(chatID) == store.TypePrivate {
+				in.MessageThreadID = nil
+			}
 		}
 		if t, ok := opts["thread-id"]; ok {
 			v, err := strconv.Atoi(t)
@@ -962,6 +981,28 @@ func runHashPassword(ioStreams IO) error {
 	return nil
 }
 
+func parseChatIDAndThread(raw string) (string, *int, error) {
+	raw = strings.TrimSpace(raw)
+	if !strings.Contains(raw, "#") {
+		return raw, nil, nil
+	}
+	parts := strings.Split(raw, "#")
+	if len(parts) != 2 {
+		return "", nil, apperr.New(apperr.Validation, "Message thread ID must be a positive integer")
+	}
+	chatID := strings.TrimSpace(parts[0])
+	threadStr := strings.TrimSpace(parts[1])
+	tid, err := strconv.Atoi(threadStr)
+	if err != nil || tid <= 0 {
+		return "", nil, apperr.New(apperr.Validation, "Message thread ID must be a positive integer")
+	}
+	var thread *int
+	if store.TypeOf(chatID) == store.TypeGroup {
+		thread = &tid
+	}
+	return chatID, thread, nil
+}
+
 func parseOptions(args []string) (opts map[string]string, positionals []string, err error) {
 	opts = map[string]string{}
 	for i := 0; i < len(args); i++ {
@@ -1111,7 +1152,7 @@ func Help() string {
 
 Usage:
   telesend [--json] bot add|list|default|remove|update
-  telesend [--json] alias add <name> <chat-id> [--thread-id <id>]
+  telesend [--json] alias add <name> <chat-id>[#<thread_id>] [--thread-id <id>]
   telesend [--json] alias list [group|private]
   telesend [--json] alias update|remove
   telesend [--json] msg|message <type> <alias|chat-id>[#<thread_id>] [content] [--data <json|@file>] [--bot <username>] [--thread-id <id>] [--silent] [--parse-mode=<html|markdown|md>]

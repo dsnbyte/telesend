@@ -149,8 +149,8 @@ Media values are treated as local paths unless they start with `http://`, `https
 telesend bot add                              # interactive token prompt
 printf '%s\n' "$TELEGRAM_BOT_TOKEN" | telesend bot add   # non-interactive
 telesend bot list
-telesend bot default alerts_bot
-telesend bot remove old_bot
+telesend bot default alerts_bot	 # set default bot
+telesend bot remove old_bot	 # remove a bot
 ```
 
 ### Managing Aliases
@@ -159,12 +159,14 @@ Aliases map a short name to a chat ID and optionally a forum topic. Names may in
 
 ```sh
 telesend alias add ops -1001234567890 --thread-id 42
+telesend alias add "Team Report" -1002603419700#23   # direct chat ID with topic thread ID
 telesend alias add "Team Chat" -1002603419700
 telesend alias add alice 123456789
 telesend alias list
 telesend alias list group       # list only group aliases
 telesend alias list private     # list only private aliases
 telesend alias update ops --name incidents --chat-id -1001234567890 --thread-id 99
+telesend alias update "Team Report" -1002603419700#50 # update chat ID and topic thread ID directly
 telesend alias remove incidents
 
 # View delivery history (table or JSON)

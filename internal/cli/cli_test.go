@@ -188,6 +188,71 @@ func TestCLIAliasManagementAndTypeColumn(t *testing.T) {
 	}
 }
 
+func TestCLIAliasChatIDWithThreadID(t *testing.T) {
+	env := setupCLI(t)
+	ctx := context.Background()
+
+	// 1. Add group alias with inline #thread_id
+	out, _, code := run(ctx, env.tg, env.wrapper, []string{"alias", "add", "Team Report", "-1002603419700#23"}, "")
+	if code != 0 || !strings.Contains(out, "Added alias Team Report") || !strings.Contains(out, "Type     group") || !strings.Contains(out, "Chat ID  -1002603419700") || !strings.Contains(out, "Thread   23") {
+		t.Fatalf("add group alias with inline thread: %d %q", code, out)
+	}
+
+	// 2. Add group alias with inline #thread_id and --thread-id override
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"alias", "add", "Team Override", "-1002603419700#23", "--thread-id", "99"}, "")
+	if code != 0 || !strings.Contains(out, "Added alias Team Override") || !strings.Contains(out, "Thread   99") {
+		t.Fatalf("add group alias with thread-id override: %d %q", code, out)
+	}
+
+	// 3. Add private alias with inline #thread_id (thread ignored for private chats)
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"alias", "add", "Private User", "12345#23"}, "")
+	if code != 0 || !strings.Contains(out, "Added alias Private User") || !strings.Contains(out, "Type     private") || !strings.Contains(out, "Thread   -") {
+		t.Fatalf("add private alias with inline thread: %d %q", code, out)
+	}
+
+	// 4. Invalid inline thread syntax produces validation error
+	invalidInline := []string{
+		"-1002603419700#abc", "-1002603419700#0", "-1002603419700#-5", "-1002603419700#", "-1002603419700#1#2",
+		"12345#abc",
+	}
+	for _, bad := range invalidInline {
+		_, errOut, code := run(ctx, env.tg, env.wrapper, []string{"alias", "add", "bad-alias", bad}, "")
+		if code != 1 || !strings.Contains(errOut, "Message thread ID must be a positive integer") {
+			t.Fatalf("expected validation error for bad inline thread %q: %d %q", bad, code, errOut)
+		}
+	}
+
+	// 5. Update alias using positional chat-id with inline thread
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"alias", "update", "Team Report", "-1002603419700#55"}, "")
+	if code != 0 || !strings.Contains(out, "Updated alias Team Report") || !strings.Contains(out, "Thread   55") {
+		t.Fatalf("update alias with positional inline thread: %d %q", code, out)
+	}
+
+	// 6. Update alias using --chat-id flag with inline thread
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"alias", "update", "Team Report", "--chat-id", "-1002603419700#77"}, "")
+	if code != 0 || !strings.Contains(out, "Updated alias Team Report") || !strings.Contains(out, "Thread   77") {
+		t.Fatalf("update alias with --chat-id inline thread: %d %q", code, out)
+	}
+
+	// 7. Update alias using inline thread and explicit --thread-id override
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"alias", "update", "Team Report", "-1002603419700#77", "--thread-id", "88"}, "")
+	if code != 0 || !strings.Contains(out, "Updated alias Team Report") || !strings.Contains(out, "Thread   88") {
+		t.Fatalf("update alias with thread override: %d %q", code, out)
+	}
+
+	// 8. Update alias to private chat clears thread
+	out, _, code = run(ctx, env.tg, env.wrapper, []string{"alias", "update", "Team Report", "54321"}, "")
+	if code != 0 || !strings.Contains(out, "Updated alias Team Report") || !strings.Contains(out, "Type     private") || !strings.Contains(out, "Thread   -") {
+		t.Fatalf("update alias to private clears thread: %d %q", code, out)
+	}
+
+	// 9. Update alias with invalid inline thread produces validation error
+	_, errOut, code := run(ctx, env.tg, env.wrapper, []string{"alias", "update", "Team Report", "-1002603419700#bad"}, "")
+	if code != 1 || !strings.Contains(errOut, "Message thread ID must be a positive integer") {
+		t.Fatalf("expected validation error for bad inline thread update: %d %q", code, errOut)
+	}
+}
+
 func TestCLIMessageSending(t *testing.T) {
 	env := setupCLI(t)
 	ctx := context.Background()
