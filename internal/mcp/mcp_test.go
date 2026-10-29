@@ -328,6 +328,111 @@ func TestRemoteMCPServerAndOAuth(t *testing.T) {
 	}
 }
 
+func TestRemoteMCPOpenIDScope(t *testing.T) {
+	a, tg := testutil.WithBot(t)
+	publicURL, _ := url.Parse("https://mcp.example.com")
+	verifier, _ := secret.NewVerifier("", "owner_secret")
+
+	now := int64(1000)
+	srv, err := mcp.NewRemoteServer(a, mcp.RemoteConfig{
+		PublicURL:     publicURL,
+		OwnerVerifier: verifier,
+		Now:           func() int64 { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	client := ts.Client()
+
+	// Register client with Quick redirect URI
+	regBody := `{"redirect_uris":["https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback"],"client_name":"Amazon Quick"}`
+	regRes, err := client.Post(ts.URL+"/register", "application/json", strings.NewReader(regBody))
+	if err != nil || regRes.StatusCode != 201 {
+		t.Fatalf("register: %v %v", regRes, err)
+	}
+	var regData struct {
+		ClientID string `json:"client_id"`
+	}
+	json.NewDecoder(regRes.Body).Decode(&regData)
+
+	verifierStr := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	challengeStr := "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+	// GET authorize with scope=openid and resource parameter (Amazon Quick style)
+	authURL := ts.URL + "/authorize?client_id=" + regData.ClientID +
+		"&redirect_uri=https%3A%2F%2Fus-east-1.quicksight.aws.amazon.com%2Fsn%2Foauthcallback" +
+		"&response_type=code&code_challenge=" + challengeStr +
+		"&code_challenge_method=S256&scope=openid&state=xyz&resource=https%3A%2F%2Fmcp.example.com%2Fmcp"
+	getAuthRes, err := client.Get(authURL)
+	if err != nil || getAuthRes.StatusCode != 200 {
+		t.Fatalf("get authorize with openid: %v %v", getAuthRes, err)
+	}
+	body, _ := io.ReadAll(getAuthRes.Body)
+	if !strings.Contains(string(body), "mcp:read") || !strings.Contains(string(body), "openid") {
+		t.Fatalf("consent page should display granted scopes: %s", string(body))
+	}
+
+	// POST authorize with owner password
+	postForm := url.Values{
+		"client_id":             {regData.ClientID},
+		"redirect_uri":          {"https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback"},
+		"response_type":         {"code"},
+		"code_challenge":        {challengeStr},
+		"code_challenge_method": {"S256"},
+		"scope":                 {"mcp:read mcp:send openid"},
+		"state":                 {"xyz"},
+		"resource":              {"https://mcp.example.com/mcp"},
+		"password":              {"owner_secret"},
+	}
+	noRedirectClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	postAuthRes, err := noRedirectClient.PostForm(ts.URL+"/authorize", postForm)
+	if err != nil || postAuthRes.StatusCode != 302 {
+		t.Fatalf("post authorize: %v %v", postAuthRes, err)
+	}
+	loc, _ := postAuthRes.Location()
+	code := loc.Query().Get("code")
+
+	// Exchange code for token
+	tokenForm := url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {regData.ClientID},
+		"redirect_uri":  {"https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback"},
+		"code":          {code},
+		"code_verifier": {verifierStr},
+	}
+	tokenRes, err := client.PostForm(ts.URL+"/token", tokenForm)
+	if err != nil || tokenRes.StatusCode != 200 {
+		t.Fatalf("token: %v %v", tokenRes, err)
+	}
+	var tokenData struct {
+		AccessToken string `json:"access_token"`
+		Scope       string `json:"scope"`
+	}
+	json.NewDecoder(tokenRes.Body).Decode(&tokenData)
+	if !strings.Contains(tokenData.Scope, "openid") || !strings.Contains(tokenData.Scope, "mcp:read") {
+		t.Fatalf("token scope should have openid and mcp:read: %s", tokenData.Scope)
+	}
+
+	// Call /mcp with bearer token - send_text
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp", bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"send_text","arguments":{"to":"1","payload":{"text":"remote test"}}}}`)))
+	req.Header.Set("Authorization", "Bearer "+tokenData.AccessToken)
+	mcpRes, err := client.Do(req)
+	if err != nil || mcpRes.StatusCode != 200 {
+		t.Fatalf("mcp call: %v %v", mcpRes, err)
+	}
+	if len(tg.Calls()) == 0 {
+		t.Fatal("expected telegram call")
+	}
+}
+
 func TestMethodDocsBotAPI103(t *testing.T) {
 	// sendMessage should have ephemeral_message_parameters and allow_paid_broadcast
 	doc, ok := mcp.MethodDocFor("sendMessage")

@@ -33,7 +33,8 @@ const (
 	refreshTokenTTL      = 30 * 24 * 60 * 60 // 30 days
 )
 
-var supportedScopes = []string{"mcp:read", "mcp:send"}
+var defaultMCPScopes = []string{"mcp:read", "mcp:send"}
+var supportedScopes = []string{"mcp:read", "mcp:send", "openid"}
 
 // RemoteConfig configures the HTTP MCP listener.
 type RemoteConfig struct {
@@ -271,6 +272,7 @@ func (s *RemoteServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		page = strings.Replace(page, "{{REDIRECT_URI}}", html.EscapeString(redirectURI), 1)
 		page = strings.Replace(page, "{{SCOPE_VAL}}", html.EscapeString(strings.Join(scopes, " ")), 1)
 		page = strings.Replace(page, "{{STATE}}", html.EscapeString(query.Get("state")), 1)
+		page = strings.Replace(page, "{{RESOURCE}}", html.EscapeString(query.Get("resource")), 1)
 		page = strings.Replace(page, "{{CHALLENGE}}", html.EscapeString(challenge), 1)
 		io.WriteString(w, page)
 		return
@@ -466,15 +468,33 @@ func (s *RemoteServer) unauthorized(w http.ResponseWriter) {
 func parseScopes(val string) []string {
 	val = strings.TrimSpace(val)
 	if val == "" {
-		return append([]string(nil), supportedScopes...)
+		return append([]string(nil), defaultMCPScopes...)
 	}
 	fields := strings.Fields(val)
+	var scopes []string
+	hasMCPRead := false
+	hasMCPSend := false
+
 	for _, f := range fields {
-		if !slices.Contains(supportedScopes, f) {
-			return nil
+		if slices.Contains(supportedScopes, f) {
+			scopes = append(scopes, f)
+			if f == "mcp:read" {
+				hasMCPRead = true
+			}
+			if f == "mcp:send" {
+				hasMCPSend = true
+			}
 		}
 	}
-	return slices.Compact(fields)
+
+	// If no specific MCP permissions were requested (e.g. client only sent "openid" or generic scopes),
+	// default to granting MCP capabilities so the tools can actually be invoked.
+	if !hasMCPRead && !hasMCPSend {
+		scopes = append(scopes, defaultMCPScopes...)
+	}
+
+	slices.Sort(scopes)
+	return slices.Compact(scopes)
 }
 
 func isForm(r *http.Request) bool {
@@ -573,6 +593,7 @@ const consentHTML = `<!doctype html>
         <input type="hidden" name="redirect_uri" value="{{REDIRECT_URI}}">
         <input type="hidden" name="scope" value="{{SCOPE_VAL}}">
         <input type="hidden" name="state" value="{{STATE}}">
+        <input type="hidden" name="resource" value="{{RESOURCE}}">
         <input type="hidden" name="code_challenge" value="{{CHALLENGE}}">
         <input type="hidden" name="code_challenge_method" value="S256">
         <label>Owner password <input type="password" name="password" required autocomplete="current-password"></label>

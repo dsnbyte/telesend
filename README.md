@@ -292,6 +292,34 @@ Enable developer mode in a workspace that supports custom MCP apps, create a cus
 
 Go to **Settings → Connectors**, add a custom connector with `https://telesend.example.com/mcp`, and complete the consent screen. No client secret or API key needed — Telesend handles dynamic client registration.
 
+### Connecting Amazon Quick (Custom OAuth)
+
+For platforms that require manual OAuth client configuration (such as Amazon Quick):
+
+1. Register an OAuth client with your platform's callback/redirect URL:
+
+```sh
+curl -X POST https://telesend.example.com/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_name": "Amazon Quick",
+    "redirect_uris": [
+      "https://quick.aws.com/sn/oauthcallback",
+      "https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback"
+    ]
+  }'
+```
+
+Copy the `client_id` from the JSON response.
+
+2. In Amazon Quick, create a connector under **Connectors → Create for your team → Model Context Protocol (MCP)** using endpoint `https://telesend.example.com/mcp`.
+3. Under authentication, choose **Custom OAuth app**:
+   - **Client ID:** Paste the `client_id` from step 1.
+   - **Public OAuth client:** Check this box (Telesend uses public PKCE; no client secret needed).
+   - **Authorization URL:** `https://telesend.example.com/authorize`
+   - **Token URL:** `https://telesend.example.com/token`
+4. Choose **Create and continue** and log in with `TELESEND_MCP_PASSWORD` on the consent screen.
+
 > **Important:** Never put tokens, passwords, or API keys in the connector URL.
 
 <details>
