@@ -2,4 +2,4 @@
 package version
 
 // Version is the Telesend release version.
-var Version = "0.2.0"
+var Version = "0.2.1"
