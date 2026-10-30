@@ -219,6 +219,22 @@ func TestRemoteMCPServerAndOAuth(t *testing.T) {
 	if err != nil || iconRes.StatusCode != 200 || iconRes.Header.Get("Content-Type") != "image/png" {
 		t.Fatalf("icon: %v %v", iconRes, err)
 	}
+	if iconRes.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("expected Access-Control-Allow-Origin: *, got %q", iconRes.Header.Get("Access-Control-Allow-Origin"))
+	}
+	if iconRes.Header.Get("Cross-Origin-Resource-Policy") != "cross-origin" {
+		t.Fatalf("expected Cross-Origin-Resource-Policy: cross-origin, got %q", iconRes.Header.Get("Cross-Origin-Resource-Policy"))
+	}
+
+	// 2b. Icon CORS preflight (OPTIONS)
+	reqOpt, _ := http.NewRequest(http.MethodOptions, ts.URL+"/icon.png", nil)
+	optRes, err := client.Do(reqOpt)
+	if err != nil || optRes.StatusCode != 204 {
+		t.Fatalf("icon options: %v %v", optRes, err)
+	}
+	if optRes.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("expected Access-Control-Allow-Origin on OPTIONS, got %q", optRes.Header.Get("Access-Control-Allow-Origin"))
+	}
 
 	// 3. Register client
 	regBody := `{"redirect_uris":["https://app.example.com/cb"],"client_name":"Agent"}`

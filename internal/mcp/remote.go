@@ -36,6 +36,8 @@ const (
 var defaultMCPScopes = []string{"mcp:read", "mcp:send"}
 var supportedScopes = []string{"mcp:read", "mcp:send", "openid"}
 
+const iconURL = "https://lh3.googleusercontent.com/d/15MJjeRMnwLuvjaouJLHaxHXfrZBqt2-1"
+
 // RemoteConfig configures the HTTP MCP listener.
 type RemoteConfig struct {
 	PublicURL     *url.URL
@@ -95,32 +97,64 @@ func (s *RemoteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	// 1. Static icons
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		switch path {
-		case "/icon.png", "/favicon.ico", "/apple-touch-icon.png", "/telesend-icon.png":
+	switch path {
+	case "/icon.png", "/favicon.ico", "/apple-touch-icon.png", "/telesend-icon.png":
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+		w.Header().Set("Vary", "Origin")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "image/png")
-			w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
+			w.Header().Set("Cache-Control", "public, max-age=3600")
 			w.Header().Set("Content-Length", strconv.Itoa(len(assets.Icon)))
 			if r.Method == http.MethodGet {
 				w.Write(assets.Icon)
 			}
 			return
 		}
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
 	}
 
 	// 2. Discovery
-	if r.Method == http.MethodGet {
-		switch path {
-		case "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp":
+	switch path {
+	case "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp":
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"resource":              s.endpoint("/mcp"),
 				"authorization_servers": []string{urlOrigin(s.cfg.PublicURL)},
 				"scopes_supported":      supportedScopes,
-				"logo_uri":              s.endpoint("/icon.png"),
-				"icon_uri":              s.endpoint("/icon.png"),
+				"logo_uri":              iconURL,
+				"icon_uri":              iconURL,
 			})
 			return
-		case "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration":
+		}
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	case "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration":
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"issuer":                                urlOrigin(s.cfg.PublicURL),
 				"authorization_endpoint":                s.endpoint("/authorize"),
@@ -132,11 +166,14 @@ func (s *RemoteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"token_endpoint_auth_methods_supported": []string{"none"},
 				"code_challenge_methods_supported":      []string{"S256"},
 				"scopes_supported":                      supportedScopes,
-				"logo_uri":                              s.endpoint("/icon.png"),
-				"icon_uri":                              s.endpoint("/icon.png"),
+				"logo_uri":                              iconURL,
+				"icon_uri":                              iconURL,
 			})
 			return
 		}
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
 	}
 
 	// 3. OAuth registration
@@ -447,7 +484,7 @@ func (s *RemoteServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		Authorizer: RemoteAuthorizer{},
 		IsRemote:   true,
 	})
-	mcpServer := NewServer("telesend", version.Version, "Send Telegram bot messages through MCP.", s.endpoint("/icon.png"), tools)
+	mcpServer := NewServer("telesend", version.Version, "Send Telegram bot messages through MCP.", iconURL, tools)
 	out := mcpServer.Handle(r.Context(), body)
 	if out == nil {
 		w.WriteHeader(http.StatusNoContent)

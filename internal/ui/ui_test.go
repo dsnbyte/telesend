@@ -169,7 +169,24 @@ func TestStaticAssets(t *testing.T) {
 	if err != nil || resIcon.StatusCode != 200 {
 		t.Fatalf("expected 200 for /icon.png, got %v", resIcon)
 	}
+	if resIcon.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("expected Access-Control-Allow-Origin: * for UI icon, got %q", resIcon.Header.Get("Access-Control-Allow-Origin"))
+	}
+	if resIcon.Header.Get("Cross-Origin-Resource-Policy") != "cross-origin" {
+		t.Fatalf("expected Cross-Origin-Resource-Policy: cross-origin for UI icon, got %q", resIcon.Header.Get("Cross-Origin-Resource-Policy"))
+	}
 	resIcon.Body.Close()
+
+	// 4b. Icon OPTIONS preflight
+	reqOpt, _ := http.NewRequest(http.MethodOptions, ts.URL+"/icon.png", nil)
+	optRes, err := client.Do(reqOpt)
+	if err != nil || optRes.StatusCode != 204 {
+		t.Fatalf("expected 204 for OPTIONS /icon.png, got %v %v", optRes, err)
+	}
+	if optRes.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("expected Access-Control-Allow-Origin: * for UI icon OPTIONS, got %q", optRes.Header.Get("Access-Control-Allow-Origin"))
+	}
+	optRes.Body.Close()
 }
 
 func TestAuthLifecycleAndEndpoints(t *testing.T) {

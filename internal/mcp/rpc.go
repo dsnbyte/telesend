@@ -109,7 +109,13 @@ func (s *Server) dispatch(ctx context.Context, req request) (any, *rpcError) {
 		}
 		info := map[string]any{"name": s.Name, "version": s.Version, "description": s.Description}
 		if s.IconURL != "" {
-			info["icons"] = []any{map[string]any{"src": s.IconURL, "mimeType": "image/png", "sizes": []string{"200x200"}}}
+			info["icons"] = []any{
+				map[string]any{
+					"src":      s.IconURL,
+					"mimeType": "image/png",
+					"sizes":    []string{"512x512"},
+				},
+			}
 		}
 		return map[string]any{
 			"protocolVersion": version,

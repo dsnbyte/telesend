@@ -125,10 +125,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/app.js", "/ui/app.js":
 		s.serveStatic(w, r, "static/app.js", "application/javascript; charset=utf-8")
 		return
-	case "/favicon.ico", "/icon.png", "/ui/icon.png", "/ui/favicon.ico":
+	case "/favicon.ico", "/icon.png", "/ui/icon.png", "/ui/favicon.ico", "/apple-touch-icon.png", "/telesend-icon.png":
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+		w.Header().Set("Vary", "Origin")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		_, _ = w.Write(assets.Icon)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Header().Set("Content-Length", strconv.Itoa(len(assets.Icon)))
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(assets.Icon)
+		}
 		return
 	}
 
