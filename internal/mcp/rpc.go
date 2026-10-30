@@ -24,6 +24,7 @@ type Tool struct {
 	Title       string
 	Description string
 	Schema      map[string]any
+	Meta        map[string]any
 	ReadOnly    bool
 	Handler     func(ctx context.Context, args map[string]any) (any, error)
 }
@@ -131,10 +132,14 @@ func (s *Server) dispatch(ctx context.Context, req request) (any, *rpcError) {
 			if !t.ReadOnly {
 				annotations["openWorldHint"] = true
 			}
-			list = append(list, map[string]any{
+			toolDef := map[string]any{
 				"name": t.Name, "title": t.Title, "description": t.Description,
 				"inputSchema": t.Schema, "annotations": annotations,
-			})
+			}
+			if len(t.Meta) > 0 {
+				toolDef["_meta"] = t.Meta
+			}
+			list = append(list, toolDef)
 		}
 		return map[string]any{"tools": list}, nil
 	case "tools/call":

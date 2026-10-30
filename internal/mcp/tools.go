@@ -19,6 +19,10 @@ type Authorizer interface {
 // LocalAuthorizer canonicalizes paths using FilePolicy.
 type LocalAuthorizer struct{ Policy *FilePolicy }
 
+func isChatGPTFileID(id string) bool {
+	return strings.HasPrefix(id, "file_") || strings.HasPrefix(id, "file-")
+}
+
 // Authorize resolves path media sources through the policy.
 func (a *LocalAuthorizer) Authorize(v any) (any, error) {
 	switch t := v.(type) {
@@ -28,19 +32,48 @@ func (a *LocalAuthorizer) Authorize(v any) (any, error) {
 			if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
 				src = "url"
 				ok = true
+			} else if u, okU := t["url"].(string); okU && u != "" {
+				src = "url"
+				ok = true
+			} else if fid, okFid := t["file_id"].(string); okFid && fid != "" {
+				if !isChatGPTFileID(fid) {
+					src = "file_id"
+					ok = true
+				}
+			} else if val, okVal := t["value"].(string); okVal && val != "" {
+				if strings.HasPrefix(val, "http://") || strings.HasPrefix(val, "https://") {
+					src = "url"
+					ok = true
+				} else if strings.HasPrefix(val, "/") || strings.HasPrefix(val, "./") {
+					src = "path"
+					ok = true
+				} else if !isChatGPTFileID(val) {
+					src = "file_id"
+					ok = true
+				}
 			}
+		}
+		if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+			src = "url"
+			ok = true
 		}
 		if ok && (src == "path" || src == "url" || src == "file_id") {
 			val, _ := t["value"].(string)
-			if val == "" {
-				if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
-					val = durl
-				} else if u, okU := t["url"].(string); okU && u != "" {
-					val = u
+			if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+				val = durl
+			} else if u, okU := t["url"].(string); okU && u != "" {
+				val = u
+			} else if val == "" {
+				if fid, okFid := t["file_id"].(string); okFid && fid != "" {
+					val = fid
 				}
 			}
 			if val == "" {
 				return nil, apperr.Newf(apperr.Validation, "MCP media source %s requires a value", src)
+			}
+			if isChatGPTFileID(val) && t["download_url"] == nil {
+				return nil, apperr.New(apperr.Validation,
+					"ChatGPT file ID must be passed via the top-level 'file' parameter (e.g. send_media(to=..., file=...)) so ChatGPT can supply the file data")
 			}
 			if src == "path" {
 				canon, err := a.Policy.Authorize(val)
@@ -50,11 +83,21 @@ func (a *LocalAuthorizer) Authorize(v any) (any, error) {
 				out := maps.Clone(t)
 				out["source"] = src
 				out["value"] = canon
+				if fn, okFn := t["file_name"].(string); okFn && fn != "" {
+					if _, hasFn := out["filename"]; !hasFn {
+						out["filename"] = fn
+					}
+				}
 				return out, nil
 			}
 			out := maps.Clone(t)
 			out["source"] = src
 			out["value"] = val
+			if fn, okFn := t["file_name"].(string); okFn && fn != "" {
+				if _, hasFn := out["filename"]; !hasFn {
+					out["filename"] = fn
+				}
+			}
 			return out, nil
 		}
 		if ok && src == "upload" {
@@ -95,7 +138,27 @@ func (RemoteAuthorizer) Authorize(v any) (any, error) {
 			if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
 				src = "url"
 				ok = true
+			} else if u, okU := t["url"].(string); okU && u != "" {
+				src = "url"
+				ok = true
+			} else if fid, okFid := t["file_id"].(string); okFid && fid != "" {
+				if !isChatGPTFileID(fid) {
+					src = "file_id"
+					ok = true
+				}
+			} else if val, okVal := t["value"].(string); okVal && val != "" {
+				if strings.HasPrefix(val, "http://") || strings.HasPrefix(val, "https://") {
+					src = "url"
+					ok = true
+				} else if !strings.HasPrefix(val, "/") && !strings.HasPrefix(val, "./") && !isChatGPTFileID(val) {
+					src = "file_id"
+					ok = true
+				}
 			}
+		}
+		if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+			src = "url"
+			ok = true
 		}
 		if ok && (src == "path" || src == "url" || src == "file_id" || src == "upload") {
 			if src == "path" {
@@ -107,19 +170,30 @@ func (RemoteAuthorizer) Authorize(v any) (any, error) {
 					"Remote MCP media must use a media URL or Telegram file_id")
 			}
 			val, _ := t["value"].(string)
-			if val == "" {
-				if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
-					val = durl
-				} else if u, okU := t["url"].(string); okU && u != "" {
-					val = u
+			if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+				val = durl
+			} else if u, okU := t["url"].(string); okU && u != "" {
+				val = u
+			} else if val == "" {
+				if fid, okFid := t["file_id"].(string); okFid && fid != "" {
+					val = fid
 				}
 			}
 			if val == "" {
 				return nil, apperr.Newf(apperr.Validation, "MCP media source %s requires a value", src)
 			}
+			if isChatGPTFileID(val) && t["download_url"] == nil {
+				return nil, apperr.New(apperr.Validation,
+					"ChatGPT file ID must be passed via the top-level 'file' parameter (e.g. send_media(to=..., file=...)) so ChatGPT can supply the file data")
+			}
 			out := maps.Clone(t)
 			out["source"] = src
 			out["value"] = val
+			if fn, okFn := t["file_name"].(string); okFn && fn != "" {
+				if _, hasFn := out["filename"]; !hasFn {
+					out["filename"] = fn
+				}
+			}
 			return out, nil
 		}
 		out := make(map[string]any, len(t))
@@ -160,15 +234,21 @@ func envelopeSchema(payloadProps M) M {
 		"properties":           payloadProps,
 		"additionalProperties": true,
 	}
+	topProps := M{
+		"to":              str("Chat ID, @username, or alias from list_aliases"),
+		"bot":             str("Bot username; default from list_bots if omitted"),
+		"messageThreadId": posInt("Optional message thread ID (forum topic)"),
+		"payload":         payloadSchema,
+	}
+	for k, v := range payloadProps {
+		if _, exists := topProps[k]; !exists {
+			topProps[k] = v
+		}
+	}
 	return M{
-		"type": "object",
-		"properties": M{
-			"to":              str("Chat ID, @username, or alias from list_aliases"),
-			"bot":             str("Bot username; default from list_bots if omitted"),
-			"messageThreadId": posInt("Optional message thread ID (forum topic)"),
-			"payload":         payloadSchema,
-		},
-		"required":             []string{"to", "payload"},
+		"type":                 "object",
+		"properties":           topProps,
+		"required":             []string{"to"},
 		"additionalProperties": true,
 	}
 }
@@ -183,10 +263,10 @@ func mediaSourceSchema(allowURL, allowPath bool) M {
 	}
 	sources = append(sources, "file_id")
 
-	desc := "Use a policy-approved path, a media URL (including ChatGPT/Gemini generated URLs), or a Telegram file_id."
+	desc := "Use a policy-approved path, a public URL, ChatGPT-generated file, or a Telegram file_id."
 	if !allowPath {
 		if allowURL {
-			desc = "Use a direct media URL (including ChatGPT/Gemini generated image/video URLs) or a Telegram file_id."
+			desc = "Use a direct media URL, ChatGPT-generated file, or a Telegram file_id."
 		} else {
 			desc = "Use a Telegram file_id."
 		}
@@ -195,11 +275,13 @@ func mediaSourceSchema(allowURL, allowPath bool) M {
 		"type": "object",
 		"properties": M{
 			"source":       enum(desc, sources...),
-			"value":        str(desc),
-			"download_url": strAny("Alternative URL field used by ChatGPT/AI file metadata."),
+			"value":        strAny(desc),
+			"download_url": strAny("Temporary download URL used by ChatGPT file handoff."),
+			"file_id":      strAny("Telegram file_id or ChatGPT file ID."),
+			"mime_type":    strAny("MIME type of the media file."),
+			"file_name":    strAny("Filename of the media file."),
 			"filename":     strAny("Optional filename for the media attachment."),
 		},
-		"required":             []string{"source"},
 		"additionalProperties": true,
 	}
 }
@@ -216,10 +298,19 @@ func parseEnvelope(args map[string]any) (to, bot string, thread int, payload map
 		thread = int(f)
 	}
 	p, ok := args["payload"].(map[string]any)
-	if !ok || p == nil {
-		return "", "", 0, nil, apperr.New(apperr.Validation, "Field \"payload\" must be an object")
+	if ok && p != nil {
+		payload = maps.Clone(p)
+	} else {
+		payload = make(map[string]any)
 	}
-	return to, bot, thread, maps.Clone(p), nil
+	for k, v := range args {
+		if k != "to" && k != "bot" && k != "messageThreadId" && k != "payload" {
+			if _, exists := payload[k]; !exists {
+				payload[k] = v
+			}
+		}
+	}
+	return to, bot, thread, payload, nil
 }
 
 // BuildTools constructs the 11 MCP tools configured with opts.
@@ -399,10 +490,13 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_media",
 			Title: "Send media file",
-			Description: "Send a single Telegram media file via Telesend. Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
+			Description: "Send a single Telegram media file via Telesend (supports ChatGPT-generated files). Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
 				"video_note and live_photo do not support URL sources. " +
 				"live_photo also requires a photo field (the still frame). " +
 				"Add caption for a text caption below the media.",
+			Meta: map[string]any{
+				"openai/fileParams": []string{"file"},
+			},
 			Schema: envelopeSchema(M{
 				"type":       enum("Media type to send.", "photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"),
 				"file":       mediaSourceSchema(true, allowPath),
@@ -420,13 +514,41 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 					return nil, err
 				}
 				mediaType, _ := payload["type"].(string)
+				if mediaType == "" {
+					mediaType = "photo"
+				}
 				validTypes := []string{"photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"}
 				if !slices.Contains(validTypes, mediaType) {
 					return nil, apperr.Newf(apperr.Validation, "Invalid media type %q. Use: %s", mediaType, strings.Join(validTypes, ", "))
 				}
+				if s, ok := payload["file"].(string); ok && s != "" {
+					payload["file"] = map[string]any{"value": s}
+				}
+				if s, ok := payload["photo"].(string); ok && s != "" {
+					payload["photo"] = map[string]any{"value": s}
+				}
 				file, hasFile := payload["file"].(map[string]any)
 				if !hasFile || file == nil {
+					file, hasFile = payload["photo"].(map[string]any)
+				}
+				if !hasFile || file == nil {
 					return nil, apperr.New(apperr.Validation, "Field \"file\" is required for send_media")
+				}
+				if file != nil {
+					if durl, ok := file["download_url"].(string); ok && durl != "" {
+						file["value"] = durl
+					} else if u, ok := file["url"].(string); ok && u != "" {
+						file["value"] = u
+					} else if v, _ := file["value"].(string); v == "" {
+						if fid, ok := file["file_id"].(string); ok && fid != "" {
+							file["value"] = fid
+						}
+					}
+					if fn, ok := file["file_name"].(string); ok && fn != "" {
+						if _, has := file["filename"]; !has {
+							file["filename"] = fn
+						}
+					}
 				}
 				if (mediaType == "video_note" || mediaType == "live_photo") && file["source"] == "url" {
 					return nil, apperr.Newf(apperr.Validation, "URL source is not supported for type %q", mediaType)
@@ -454,17 +576,24 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_media_group",
 			Title: "Send media album",
-			Description: "Send 2–10 Telegram media files as an album via Telesend. " +
+			Description: "Send 2–10 Telegram media files as an album via Telesend (supports ChatGPT-generated files). " +
 				"Add star_count to send as paid media locked behind Telegram Stars. " +
 				"Paid media does not support URL sources.",
+			Meta: map[string]any{
+				"openai/fileParams": []string{"media"},
+			},
 			Schema: envelopeSchema(M{
 				"media": arr(M{
 					"type": "object",
 					"properties": M{
-						"type":  str("Item type: photo, video, audio, or document."),
-						"media": mediaSourceSchema(true, allowPath),
+						"type":         strAny("Item type: photo, video, audio, or document (defaults to photo)."),
+						"media":        mediaSourceSchema(true, allowPath),
+						"download_url": strAny("Temporary download URL used by ChatGPT/AI file handoff."),
+						"file_id":      strAny("Telegram file_id or ChatGPT/AI file ID."),
+						"mime_type":    strAny("MIME type of the media file."),
+						"file_name":    strAny("Filename of the media file."),
+						"caption":      strAny("Optional caption for this item."),
 					},
-					"required":             []string{"type", "media"},
 					"additionalProperties": true,
 				}, "Array of 2–10 media items."),
 				"star_count": posInt("Set to send as paid media (Telegram Stars required to view). Disables URL sources."),
@@ -477,6 +606,29 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 				to, bot, thread, payload, err := parseEnvelope(args)
 				if err != nil {
 					return nil, err
+				}
+				if rawMedia, ok := payload["media"].([]any); ok {
+					normalized := make([]any, 0, len(rawMedia))
+					for _, item := range rawMedia {
+						if mObj, ok := item.(map[string]any); ok {
+							if _, hasDurl := mObj["download_url"]; hasDurl {
+								if _, hasMedia := mObj["media"]; !hasMedia {
+									itemType, _ := mObj["type"].(string)
+									if itemType == "" {
+										itemType = "photo"
+									}
+									mObj = map[string]any{
+										"type":  itemType,
+										"media": maps.Clone(mObj),
+									}
+								}
+							}
+							normalized = append(normalized, mObj)
+						} else {
+							normalized = append(normalized, item)
+						}
+					}
+					payload["media"] = normalized
 				}
 				typ := "media-group"
 				if _, hasStars := payload["star_count"]; hasStars {

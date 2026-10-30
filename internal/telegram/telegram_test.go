@@ -3,6 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -176,7 +177,7 @@ func TestMediaFetcherFilenameInference(t *testing.T) {
 	}
 }
 
-func TestTelegramClientMediaURLRelay(t *testing.T) {
+func TestTelegramClientMediaURLDirectAndChatGPT(t *testing.T) {
 	imgBytes := []byte("fake-png-image-content")
 	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -184,35 +185,42 @@ func TestTelegramClientMediaURLRelay(t *testing.T) {
 	}))
 	defer imageServer.Close()
 
+	var directPhotoVal string
 	var receivedPhotoField string
 	var receivedFileName string
 	var receivedFileContent []byte
 
 	tgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/botTEST/sendPhoto" {
-			mr, err := r.MultipartReader()
-			if err != nil {
-				t.Fatalf("expected multipart request: %v", err)
-			}
-			for {
-				part, err := mr.NextPart()
-				if err == io.EOF {
-					break
-				}
+			if strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+				mr, err := r.MultipartReader()
 				if err != nil {
-					t.Fatalf("next part: %v", err)
+					t.Fatalf("expected multipart request: %v", err)
 				}
-				switch part.FormName() {
-				case "photo":
-					buf := new(bytes.Buffer)
-					buf.ReadFrom(part)
-					receivedPhotoField = buf.String()
-				case "attachment_0":
-					receivedFileName = part.FileName()
-					buf := new(bytes.Buffer)
-					buf.ReadFrom(part)
-					receivedFileContent = buf.Bytes()
+				for {
+					part, err := mr.NextPart()
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						t.Fatalf("next part: %v", err)
+					}
+					switch part.FormName() {
+					case "photo":
+						buf := new(bytes.Buffer)
+						buf.ReadFrom(part)
+						receivedPhotoField = buf.String()
+					case "attachment_0":
+						receivedFileName = part.FileName()
+						buf := new(bytes.Buffer)
+						buf.ReadFrom(part)
+						receivedFileContent = buf.Bytes()
+					}
 				}
+			} else {
+				var payload map[string]any
+				json.NewDecoder(r.Body).Decode(&payload)
+				directPhotoVal, _ = payload["photo"].(string)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"ok":true,"result":{"message_id":999}}`))
@@ -228,21 +236,41 @@ func TestTelegramClientMediaURLRelay(t *testing.T) {
 		MediaFetcher: NewMediaFetcher(true), // allow local server
 	}
 
-	raw, err := c.Call(context.Background(), "TEST", "sendPhoto", map[string]any{
+	// 1. Standard URL: sent directly as a URL string to Telegram (no download on backend)
+	directURL := "https://example.com/direct-image.jpg"
+	raw1, err := c.Call(context.Background(), "TEST", "sendPhoto", map[string]any{
 		"chat_id": "123",
 		"photo": map[string]any{
 			"source": "url",
-			"value":  imageServer.URL + "/generated-photo",
+			"value":  directURL,
 		},
-		"caption": "AI generated image",
+		"caption": "Direct image",
 	})
 	if err != nil {
-		t.Fatalf("call sendPhoto failed: %v", err)
+		t.Fatalf("call sendPhoto direct URL failed: %v", err)
 	}
-	if !strings.Contains(string(raw), "999") {
-		t.Fatalf("expected message id 999, got %s", string(raw))
+	if !strings.Contains(string(raw1), "999") {
+		t.Fatalf("expected message id 999, got %s", string(raw1))
+	}
+	if directPhotoVal != directURL {
+		t.Fatalf("expected direct photo URL %q, got %q", directURL, directPhotoVal)
 	}
 
+	// 2. ChatGPT generated media (download_url): downloaded and relayed as multipart attachment
+	raw2, err := c.Call(context.Background(), "TEST", "sendPhoto", map[string]any{
+		"chat_id": "123",
+		"photo": map[string]any{
+			"source":       "url",
+			"download_url": imageServer.URL + "/generated-photo",
+		},
+		"caption": "ChatGPT generated image",
+	})
+	if err != nil {
+		t.Fatalf("call sendPhoto ChatGPT failed: %v", err)
+	}
+	if !strings.Contains(string(raw2), "999") {
+		t.Fatalf("expected message id 999, got %s", string(raw2))
+	}
 	if receivedPhotoField != "attach://attachment_0" {
 		t.Fatalf("expected photo field attach://attachment_0, got %q", receivedPhotoField)
 	}

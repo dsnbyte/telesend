@@ -231,6 +231,9 @@ func MediaSourceOf(obj map[string]any) (string, bool) {
 	if durl, ok := obj["download_url"].(string); ok && durl != "" {
 		return "url", true
 	}
+	if u, ok := obj["url"].(string); ok && u != "" {
+		return "url", true
+	}
 	return "", false
 }
 
@@ -238,6 +241,17 @@ func MediaSourceOf(obj map[string]any) (string, bool) {
 type Upload interface {
 	Open() (io.ReadCloser, error)
 	Name() string
+}
+
+// isChatGPTMedia checks if the media object or URL originates from ChatGPT file handoff.
+func isChatGPTMedia(obj map[string]any, value string) bool {
+	if durl, ok := obj["download_url"].(string); ok && durl != "" {
+		return true
+	}
+	if strings.Contains(value, "oaiusercontent.com") || strings.Contains(value, "openai.com") {
+		return true
+	}
+	return false
 }
 
 func (m *materializer) media(src string, obj map[string]any) (any, error) {
@@ -259,6 +273,12 @@ func (m *materializer) media(src string, obj map[string]any) (any, error) {
 		if value == "" {
 			return nil, apperr.Newf(apperr.Validation, "Media source %s requires a value", src)
 		}
+		// Direct public URLs (for non-ChatGPT clients) are sent straight to Telegram
+		// without downloading on the Telesend backend.
+		if !isChatGPTMedia(obj, value) {
+			return value, nil
+		}
+		// ChatGPT generated media is downloaded and relayed as a multipart attachment.
 		maxSize := m.fetcher.MaxMediaSizeBytes
 		if m.method == "sendPhoto" || obj["type"] == "photo" {
 			maxSize = m.fetcher.MaxPhotoSizeBytes
@@ -269,6 +289,8 @@ func (m *materializer) media(src string, obj map[string]any) (any, error) {
 		}
 		filename := inferredFilename
 		if customName, ok := obj["filename"].(string); ok && customName != "" {
+			filename = customName
+		} else if customName, ok := obj["file_name"].(string); ok && customName != "" {
 			filename = customName
 		} else if customName, ok := obj["name"].(string); ok && customName != "" {
 			filename = customName

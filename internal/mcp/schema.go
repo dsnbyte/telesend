@@ -76,6 +76,13 @@ func validate(schema M, v any, path string) error {
 	case "object":
 		obj, ok := v.(map[string]any)
 		if !ok {
+			if props, isM := schema["properties"].(M); isM {
+				if _, hasDurl := props["download_url"]; hasDurl {
+					if _, isStr := v.(string); isStr {
+						return nil
+					}
+				}
+			}
 			return bad("expected object")
 		}
 		if req, ok := schema["required"].([]string); ok {

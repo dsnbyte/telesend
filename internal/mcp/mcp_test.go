@@ -634,9 +634,141 @@ func TestMCPSendMediaURL(t *testing.T) {
 	if strings.Contains(string(call2), `"isError":true`) {
 		t.Fatalf("call2 error: %s", string(call2))
 	}
-	if len(tg.Calls()) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(tg.Calls()))
+	// 3. ChatGPT flat tool calls with _meta["openai/fileParams"]
+	listResp := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 3,
+		"method": "tools/list"
+	}`))
+	listStr := string(listResp)
+	if !strings.Contains(listStr, `"openai/fileParams"`) || !strings.Contains(listStr, `"send_media"`) {
+		t.Fatalf("tools/list missing openai/fileParams or send_media: %s", listStr)
+	}
+
+	// 4. ChatGPT calling send_media flat without type (should default to photo)
+	call4 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 4,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"file": {
+					"download_url": "`+mediaServer.URL+`/dalle_generated.png",
+					"file_id": "file-xyz789",
+					"file_name": "cat_image.png",
+					"mime_type": "image/png"
+				},
+				"caption": "ChatGPT generated image"
+			}
+		}
+	}`))
+	if strings.Contains(string(call4), `"isError":true`) {
+		t.Fatalf("call4 error: %s", string(call4))
+	}
+	if len(tg.Calls()) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(tg.Calls()))
+	}
+
+	// 5. ChatGPT calling send_media_group with array of files
+	call5 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 5,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media_group",
+			"arguments": {
+				"to": "123",
+				"media": [
+					{
+						"download_url": "`+mediaServer.URL+`/pic1.png",
+						"file_id": "file-1"
+					},
+					{
+						"download_url": "`+mediaServer.URL+`/pic2.png",
+						"file_id": "file-2"
+					}
+				]
+			}
+		}
+	}`))
+	if strings.Contains(string(call5), `"isError":true`) {
+		t.Fatalf("call5 error: %s", string(call5))
+	}
+	if len(tg.Calls()) != 4 {
+		t.Fatalf("expected 4 calls, got %d", len(tg.Calls()))
+	}
+
+	// 6. Direct string file argument (e.g. direct URL or file_id)
+	call6 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 6,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"file": "https://example.com/direct-str.png"
+			}
+		}
+	}`))
+	if strings.Contains(string(call6), `"isError":true`) {
+		t.Fatalf("call6 error: %s", string(call6))
+	}
+	if len(tg.Calls()) != 5 {
+		t.Fatalf("expected 5 calls, got %d", len(tg.Calls()))
+	}
+
+	// 7. ChatGPT file ID in payload without download_url: rejected with guidance to use top-level file
+	call7 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 7,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"payload": {
+					"type": "photo",
+					"file": {
+						"file_id": "file_0000000065d0821195440502d5ac0195",
+						"source": "file_id"
+					}
+				}
+			}
+		}
+	}`))
+	if !strings.Contains(string(call7), `"isError":true`) || !strings.Contains(string(call7), "top-level 'file' parameter") {
+		t.Fatalf("expected guidance error for unattached ChatGPT file ID in payload: %s", string(call7))
+	}
+
+	// 8. Legitimate Telegram file_id in payload: succeeds
+	call8 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 8,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"payload": {
+					"type": "photo",
+					"file": {
+						"file_id": "AgACAgIAAxkBAAI123",
+						"source": "file_id"
+					}
+				}
+			}
+		}
+	}`))
+	if strings.Contains(string(call8), `"isError":true`) {
+		t.Fatalf("call8 error: %s", string(call8))
+	}
+	if len(tg.Calls()) != 6 {
+		t.Fatalf("expected 6 calls, got %d", len(tg.Calls()))
 	}
 }
+
 
 
