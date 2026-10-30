@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"maps"
+	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -22,6 +24,57 @@ type LocalAuthorizer struct{ Policy *FilePolicy }
 
 func isChatGPTFileID(id string) bool {
 	return strings.HasPrefix(id, "file_") || strings.HasPrefix(id, "file-")
+}
+
+func inferMediaType(file map[string]any) string {
+	if file == nil {
+		return "photo"
+	}
+	if mt, ok := file["mime_type"].(string); ok && mt != "" {
+		mt = strings.ToLower(strings.TrimSpace(mt))
+		if idx := strings.Index(mt, ";"); idx != -1 {
+			mt = strings.TrimSpace(mt[:idx])
+		}
+		if strings.HasPrefix(mt, "image/") {
+			return "photo"
+		}
+		if strings.HasPrefix(mt, "video/") {
+			return "video"
+		}
+		if strings.HasPrefix(mt, "audio/") {
+			return "audio"
+		}
+		if strings.HasPrefix(mt, "application/") || strings.HasPrefix(mt, "text/") {
+			return "document"
+		}
+	}
+	var name string
+	for _, key := range []string{"file_name", "filename", "name", "value", "url", "download_url"} {
+		if v, ok := file[key].(string); ok && v != "" {
+			name = v
+			break
+		}
+	}
+	if name != "" {
+		if u, err := url.Parse(name); err == nil && u.Path != "" {
+			name = u.Path
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		switch ext {
+		case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+			".txt", ".csv", ".tsv", ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar",
+			".json", ".xml", ".md", ".rtf", ".odt", ".ods", ".odp", ".epub",
+			".log", ".sql", ".yaml", ".yml":
+			return "document"
+		case ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff":
+			return "photo"
+		case ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v":
+			return "video"
+		case ".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg", ".opus":
+			return "audio"
+		}
+	}
+	return "photo"
 }
 
 // Authorize resolves path media sources through the policy.
@@ -491,17 +544,18 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_media",
 			Title: "Send media file",
-			Description: "Send a single Telegram media file via Telesend (supports ChatGPT-generated files). Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
+			Description: "Send a single Telegram media file or document via Telesend (supports ChatGPT-generated files). Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo (automatically inferred from file if omitted). " +
 				"video_note and live_photo do not support URL sources. " +
 				"live_photo also requires a photo field (the still frame). " +
 				"Add caption for a text caption below the media.",
 			Meta: map[string]any{
-				"openai/fileParams": []string{"file"},
+				"openai/fileParams": []string{"file", "document", "photo"},
 			},
 			Schema: envelopeSchema(M{
-				"type":       enum("Media type to send.", "photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"),
+				"type":       enum("Media type to send (photo, video, animation, audio, document, sticker, voice, video_note, live_photo). Defaults to photo or document based on file.", "photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"),
 				"file":       mediaSourceSchema(true, allowPath),
 				"photo":      mediaSourceSchema(false, allowPath),
+				"document":   mediaSourceSchema(true, allowPath),
 				"caption":    strAny("Optional caption displayed below the media (max 1024 chars)."),
 				"parse_mode": enum("Parse mode for the caption.", "HTML", "MarkdownV2", "Markdown"),
 			}),
@@ -515,20 +569,19 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 					return nil, err
 				}
 				mediaType, _ := payload["type"].(string)
-				if mediaType == "" {
-					mediaType = "photo"
-				}
-				validTypes := []string{"photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"}
-				if !slices.Contains(validTypes, mediaType) {
-					return nil, apperr.Newf(apperr.Validation, "Invalid media type %q. Use: %s", mediaType, strings.Join(validTypes, ", "))
-				}
 				if s, ok := payload["file"].(string); ok && s != "" {
 					payload["file"] = map[string]any{"value": s}
 				}
 				if s, ok := payload["photo"].(string); ok && s != "" {
 					payload["photo"] = map[string]any{"value": s}
 				}
+				if s, ok := payload["document"].(string); ok && s != "" {
+					payload["document"] = map[string]any{"value": s}
+				}
 				file, hasFile := payload["file"].(map[string]any)
+				if !hasFile || file == nil {
+					file, hasFile = payload["document"].(map[string]any)
+				}
 				if !hasFile || file == nil {
 					file, hasFile = payload["photo"].(map[string]any)
 				}
@@ -551,6 +604,19 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 						}
 					}
 				}
+				if mediaType == "" {
+					if _, hasDoc := payload["document"]; hasDoc {
+						mediaType = "document"
+					} else if _, hasPhoto := payload["photo"]; hasPhoto {
+						mediaType = "photo"
+					} else {
+						mediaType = inferMediaType(file)
+					}
+				}
+				validTypes := []string{"photo", "video", "animation", "audio", "document", "sticker", "voice", "video_note", "live_photo"}
+				if !slices.Contains(validTypes, mediaType) {
+					return nil, apperr.Newf(apperr.Validation, "Invalid media type %q. Use: %s", mediaType, strings.Join(validTypes, ", "))
+				}
 				if (mediaType == "video_note" || mediaType == "live_photo") && file["source"] == "url" {
 					return nil, apperr.Newf(apperr.Validation, "URL source is not supported for type %q", mediaType)
 				}
@@ -563,6 +629,8 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 				fieldName := mediaType
 				delete(payload, "type")
 				delete(payload, "file")
+				delete(payload, "document")
+				delete(payload, "photo")
 				payload[fieldName] = file
 
 				authorized, err := opts.Authorizer.Authorize(payload)
@@ -616,7 +684,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 								if _, hasMedia := mObj["media"]; !hasMedia {
 									itemType, _ := mObj["type"].(string)
 									if itemType == "" {
-										itemType = "photo"
+										itemType = inferMediaType(mObj)
 									}
 									mObj = map[string]any{
 										"type":  itemType,

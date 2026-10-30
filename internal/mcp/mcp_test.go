@@ -564,6 +564,11 @@ func TestMCPSendMediaURL(t *testing.T) {
 	}
 
 	mediaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".pdf") {
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Write([]byte("%PDF-1.4 mock pdf data"))
+			return
+		}
 		w.Header().Set("Content-Type", "image/png")
 		w.Write([]byte("image-data"))
 	}))
@@ -767,6 +772,65 @@ func TestMCPSendMediaURL(t *testing.T) {
 	}
 	if len(tg.Calls()) != 6 {
 		t.Fatalf("expected 6 calls, got %d", len(tg.Calls()))
+	}
+
+	// 9. ChatGPT sending PDF summary without type (auto-infers document)
+	call9 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 9,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"file": {
+					"download_url": "`+mediaServer.URL+`/summary.pdf",
+					"file_id": "file-sum123",
+					"file_name": "summary.pdf",
+					"mime_type": "application/pdf"
+				},
+				"caption": "Summary PDF from ChatGPT"
+			}
+		}
+	}`))
+	if strings.Contains(string(call9), `"isError":true`) {
+		t.Fatalf("call9 error: %s", string(call9))
+	}
+	calls := tg.Calls()
+	if len(calls) != 7 {
+		t.Fatalf("expected 7 calls, got %d", len(calls))
+	}
+	if calls[len(calls)-1].Method != "sendDocument" {
+		t.Fatalf("expected sendDocument for call9, got %s", calls[len(calls)-1].Method)
+	}
+
+	// 10. ChatGPT sending document via "document" param instead of "file"
+	call10 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 10,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"document": {
+					"download_url": "`+mediaServer.URL+`/summary.pdf",
+					"file_id": "file-sum456",
+					"file_name": "summary.pdf"
+				},
+				"caption": "Summary PDF via document param"
+			}
+		}
+	}`))
+	if strings.Contains(string(call10), `"isError":true`) {
+		t.Fatalf("call10 error: %s", string(call10))
+	}
+	calls = tg.Calls()
+	if len(calls) != 8 {
+		t.Fatalf("expected 8 calls, got %d", len(calls))
+	}
+	if calls[len(calls)-1].Method != "sendDocument" {
+		t.Fatalf("expected sendDocument for call10, got %s", calls[len(calls)-1].Method)
 	}
 }
 
