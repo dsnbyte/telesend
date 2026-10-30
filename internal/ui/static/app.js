@@ -1190,13 +1190,7 @@
     }
 
     listEl.innerHTML = filtered.map((item) => {
-      let timeStr = item.createdAt || '';
-      try {
-        const d = new Date(item.createdAt);
-        if (!isNaN(d.getTime())) {
-          timeStr = d.toLocaleString();
-        }
-      } catch (_) {}
+      const timeStr = formatDateTime(item.createdAt);
 
       return `
         <div class="item-row history-item-row" data-id="${item.id}">
@@ -1238,7 +1232,19 @@
         if (!entry) return;
 
         document.getElementById('hist-detail-id').textContent = String(entry.id);
-        document.getElementById('hist-detail-time').textContent = entry.createdAt || '-';
+        const timeEl = document.getElementById('hist-detail-time');
+        if (timeEl) {
+          const rawTime = entry.createdAt || '-';
+          if (entry.createdAt) {
+            timeEl.textContent = formatDateTime(entry.createdAt);
+            timeEl.setAttribute('data-tooltip', rawTime);
+            timeEl.setAttribute('aria-label', rawTime);
+          } else {
+            timeEl.textContent = '-';
+            timeEl.removeAttribute('data-tooltip');
+            timeEl.removeAttribute('aria-label');
+          }
+        }
         document.getElementById('hist-detail-bot').textContent = '@' + entry.bot;
         document.getElementById('hist-detail-rcpt').textContent = entry.recipient;
         document.getElementById('hist-detail-chat').textContent = entry.chatId;
@@ -1502,27 +1508,28 @@
     return escaped;
   }
 
-  function renderTelegramPreview(entry, p) {
-    let timeShort = '';
-    try {
-      const d = new Date(entry.createdAt);
-      if (!isNaN(d.getTime())) {
-        timeShort = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      }
-    } catch (_) {}
+  function formatDateTime(isoString) {
+    if (!isoString) return '-';
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
 
+    const pad = (n) => String(n).padStart(2, '0');
+    const day = pad(d.getDate());
+    const month = pad(d.getMonth() + 1);
+    const year = d.getFullYear();
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  }
+
+  function renderTelegramPreview(entry, p) {
     const type = entry.messageType || 'text';
-    const metaHtml = `<div class="tg-meta"><span>${escapeHtml(timeShort)}</span></div>`;
 
     if (type === 'text') {
       const text = (p && p.text) || entry.summary || '';
       const parseMode = p && p.parse_mode;
-      return `
-        <div class="tg-bubble">
-          <div class="tg-text">${formatTelegramText(text, parseMode)}</div>
-          ${metaHtml}
-        </div>
-      `;
+      return `<div class="tg-text">${formatTelegramText(text, parseMode)}</div>`;
     }
 
     if (type === 'photo') {
@@ -1563,11 +1570,8 @@
       }
 
       return `
-        <div class="tg-bubble">
-          ${mediaHtml}
-          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, parseMode)}</div>` : ''}
-          ${metaHtml}
-        </div>
+        ${mediaHtml}
+        ${caption ? `<div class="tg-caption">${formatTelegramText(caption, parseMode)}</div>` : ''}
       `;
     }
 
@@ -1579,17 +1583,14 @@
       }
       const caption = p && p.caption;
       return `
-        <div class="tg-bubble">
-          <div class="tg-media-file">
-            <span class="tg-media-icon">📄</span>
-            <div class="tg-doc-info">
-              <strong>${escapeHtml(docName || entry.summary || 'Document')}</strong>
-              <span class="text-muted text-xs">Telegram Document</span>
-            </div>
+        <div class="tg-media-file">
+          <span class="tg-media-icon">📄</span>
+          <div class="tg-doc-info">
+            <strong>${escapeHtml(docName || entry.summary || 'Document')}</strong>
+            <span class="text-muted text-xs">Telegram Document</span>
           </div>
-          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
-          ${metaHtml}
         </div>
+        ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
       `;
     }
 
@@ -1625,11 +1626,8 @@
       }
 
       return `
-        <div class="tg-bubble">
-          ${mediaHtml}
-          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
-          ${metaHtml}
-        </div>
+        ${mediaHtml}
+        ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
       `;
     }
 
@@ -1666,11 +1664,8 @@
       }
 
       return `
-        <div class="tg-bubble">
-          ${mediaHtml}
-          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
-          ${metaHtml}
-        </div>
+        ${mediaHtml}
+        ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}
       `;
     }
 
@@ -1678,16 +1673,13 @@
       const lat = p ? p.latitude : '';
       const lon = p ? p.longitude : '';
       return `
-        <div class="tg-bubble">
-          <div class="tg-location-card">
-            <span class="tg-media-icon">📍</span>
-            <div>
-              <div style="font-weight:600;">Location Coordinates</div>
-              <div class="text-xs code-font text-muted">${escapeHtml(String(lat))}, ${escapeHtml(String(lon))}</div>
-              <a href="https://maps.google.com/?q=${encodeURIComponent(lat)},${encodeURIComponent(lon)}" target="_blank" rel="noopener noreferrer" class="tg-map-link">Open in Google Maps &rarr;</a>
-            </div>
+        <div class="tg-location-card">
+          <span class="tg-media-icon">📍</span>
+          <div>
+            <div style="font-weight:600;">Location Coordinates</div>
+            <div class="text-xs code-font text-muted">${escapeHtml(String(lat))}, ${escapeHtml(String(lon))}</div>
+            <a href="https://maps.google.com/?q=${encodeURIComponent(lat)},${encodeURIComponent(lon)}" target="_blank" rel="noopener noreferrer" class="tg-map-link">Open in Google Maps &rarr;</a>
           </div>
-          ${metaHtml}
         </div>
       `;
     }
@@ -1707,34 +1699,21 @@
       }).join('');
 
       return `
-        <div class="tg-bubble">
-          <div class="tg-poll-card">
-            <div class="tg-poll-question">📊 ${escapeHtml(q)}</div>
-            <div class="tg-poll-options">${optsHtml}</div>
-            <div class="text-xs text-muted" style="margin-top: 6px;">Anonymous Poll</div>
-          </div>
-          ${metaHtml}
+        <div class="tg-poll-card">
+          <div class="tg-poll-question">📊 ${escapeHtml(q)}</div>
+          <div class="tg-poll-options">${optsHtml}</div>
+          <div class="text-xs text-muted" style="margin-top: 6px;">Anonymous Poll</div>
         </div>
       `;
     }
 
     if (type === 'dice') {
       const emoji = (p && p.emoji) || '🎲';
-      return `
-        <div class="tg-bubble">
-          <div class="tg-dice">${escapeHtml(emoji)}</div>
-          ${metaHtml}
-        </div>
-      `;
+      return `<div class="tg-dice">${escapeHtml(emoji)}</div>`;
     }
 
     const fallbackText = (p && (p.text || p.caption)) || entry.summary || type;
-    return `
-      <div class="tg-bubble">
-        <div class="tg-text">${escapeHtml(fallbackText)}</div>
-        ${metaHtml}
-      </div>
-    `;
+    return `<div class="tg-text">${escapeHtml(fallbackText)}</div>`;
   }
 
   // Utility

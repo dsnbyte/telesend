@@ -927,6 +927,79 @@ textarea {
   font-weight: 500;
 }
 
+/* Delivery Details Time Hover Target & Tooltip */
+.time-hover-target {
+  cursor: help;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border-bottom: 1px dashed var(--text-dim);
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  width: fit-content;
+  border-radius: 2px;
+  padding: 0 2px;
+  margin: 0 -2px;
+}
+
+.time-hover-target:hover,
+.time-hover-target:focus-visible {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background-color: rgba(56, 189, 248, 0.08);
+}
+
+.time-hover-target[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 0px);
+  right: 12px;
+  transform: translateY(4px);
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--border) transparent transparent transparent;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  pointer-events: none;
+  z-index: 101;
+}
+
+.time-hover-target[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background-color: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  padding: 5px 9px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  z-index: 100;
+}
+
+.time-hover-target:hover[data-tooltip]::before,
+.time-hover-target:focus-visible[data-tooltip]::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.time-hover-target:hover[data-tooltip]::after,
+.time-hover-target:focus-visible[data-tooltip]::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 /* Endpoints */
 .endpoint-list {
   display: flex;
@@ -1093,13 +1166,17 @@ textarea {
 /* Telegram-styled Preview Bubble */
 .tg-bubble-container {
   display: flex;
+  flex-direction: column;
   justify-content: flex-start;
-  padding: 12px;
+  padding: 14px 16px;
   background: var(--bg-input);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   min-height: 80px;
   box-sizing: border-box;
+  word-break: break-word;
+  color: var(--text);
+  width: 100%;
 }
 
 .tg-bubble {

@@ -136,6 +136,9 @@ func TestStaticAssets(t *testing.T) {
 	if !strings.Contains(cssContent, ".tg-bubble-container") || !strings.Contains(cssContent, ".tg-bubble") {
 		t.Fatal("expected Telegram-styled chat bubble CSS rules")
 	}
+	if !strings.Contains(cssContent, ".time-hover-target") {
+		t.Fatal("expected .time-hover-target CSS rule")
+	}
 	if !strings.Contains(cssContent, ".badge-danger") {
 		t.Fatal("expected .badge-danger CSS rule")
 	}
@@ -162,6 +165,9 @@ func TestStaticAssets(t *testing.T) {
 	}
 	if !strings.Contains(jsContent, "generateRandomSecret") {
 		t.Fatal("expected generateRandomSecret function in app.js")
+	}
+	if !strings.Contains(jsContent, "formatDateTime") {
+		t.Fatal("expected formatDateTime function in app.js")
 	}
 
 	// 4. Icon
