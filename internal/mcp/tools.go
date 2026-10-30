@@ -229,7 +229,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:        "list_aliases",
 			Title:       "List aliases",
-			Description: "List recipient aliases that can be used as `to`. Each alias includes type (`group` or `private`). Optional filter (`group` or `private`) allows listing only group or private aliases.",
+			Description: "List Telesend recipient aliases for Telegram chats that can be used as `to`. Each alias includes type (`group` or `private`). Optional filter (`group` or `private`) allows listing only group or private aliases.",
 			Schema: M{
 				"type": "object",
 				"properties": M{
@@ -285,7 +285,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:        "list_bots",
 			Title:       "List bots",
-			Description: "List registered bots and which one is the default.",
+			Description: "List Telegram bots registered in Telesend and which one is the default.",
 			Schema:      M{"type": "object", "properties": M{}, "additionalProperties": true},
 			ReadOnly:    true,
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
@@ -330,7 +330,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_text",
 			Title: "Send text message",
-			Description: "Send a Telegram text message. Use parse_mode: \"HTML\" or \"MarkdownV2\" for formatting. " +
+			Description: "Send a Telegram text message via Telesend. Use parse_mode: \"HTML\" or \"MarkdownV2\" for formatting. " +
 				"Add draft_id to send as a streaming draft instead of a regular message.",
 			Schema: envelopeSchema(M{
 				"text":       strAny("Message text. Required unless draft_id is set."),
@@ -368,7 +368,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_rich_message",
 			Title: "Send rich message",
-			Description: "Send a rich/structured Telegram message. " +
+			Description: "Send a rich/structured Telegram message via Telesend. " +
 				"Add draft_id to send as a streaming draft instead.",
 			Schema: envelopeSchema(M{
 				"rich_message": looseObj("Rich message content, e.g. { markdown: '**Hello**' }."),
@@ -399,7 +399,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_media",
 			Title: "Send media file",
-			Description: "Send a single media file. Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
+			Description: "Send a single Telegram media file via Telesend. Set type to: photo, video, animation, audio, document, sticker, voice, video_note, or live_photo. " +
 				"video_note and live_photo do not support URL sources. " +
 				"live_photo also requires a photo field (the still frame). " +
 				"Add caption for a text caption below the media.",
@@ -454,7 +454,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_media_group",
 			Title: "Send media album",
-			Description: "Send 2–10 media files as an album. " +
+			Description: "Send 2–10 Telegram media files as an album via Telesend. " +
 				"Add star_count to send as paid media locked behind Telegram Stars. " +
 				"Paid media does not support URL sources.",
 			Schema: envelopeSchema(M{
@@ -494,7 +494,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:        "send_location",
 			Title:       "Send location or venue",
-			Description: "Send a geographic location. Add both title and address to send as a named venue instead.",
+			Description: "Send a Telegram geographic location or venue via Telesend. Add both title and address to send as a named venue instead.",
 			Schema: envelopeSchema(M{
 				"latitude":  number("Latitude of the location."),
 				"longitude": number("Longitude of the location."),
@@ -533,7 +533,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:        "send_contact",
 			Title:       "Send contact",
-			Description: "Send a phone contact card.",
+			Description: "Send a Telegram phone contact card via Telesend.",
 			Schema: envelopeSchema(M{
 				"phone_number": str("Contact's phone number."),
 				"first_name":   str("Contact's first name."),
@@ -559,7 +559,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:  "send_interactive",
 			Title: "Send interactive content",
-			Description: "Send interactive content. Set type to: poll, checklist, dice, or game. " +
+			Description: "Send interactive Telegram content via Telesend. Set type to: poll, checklist, dice, or game. " +
 				"poll: requires question and options[]. " +
 				"checklist: requires business_connection_id and checklist object. " +
 				"dice: no required fields (optionally set emoji: 🎲🎯🏀⚽🎳🎰). " +
@@ -619,7 +619,7 @@ func BuildTools(a *app.App, opts ToolOptions) []Tool {
 		{
 			Name:        "send_invoice",
 			Title:       "Send invoice",
-			Description: "Send a payment invoice. Use currency: XTR for Telegram Stars payments (no provider_token needed).",
+			Description: "Send a Telegram payment invoice via Telesend. Use currency: XTR for Telegram Stars payments (no provider_token needed).",
 			Schema: envelopeSchema(M{
 				"title":       str("Product name (1–32 chars)."),
 				"description": str("Product description (1–255 chars)."),
