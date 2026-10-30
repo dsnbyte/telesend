@@ -9,6 +9,7 @@ import (
 	"github.com/dsnbyte/telesend/internal/app"
 	"github.com/dsnbyte/telesend/internal/apperr"
 	"github.com/dsnbyte/telesend/internal/store"
+	"github.com/dsnbyte/telesend/internal/version"
 )
 
 // Authorizer checks and canonicalizes media sources in an MCP payload.
@@ -812,5 +813,5 @@ func NewStdioServer(a *app.App, policy *FilePolicy) *Server {
 		Authorizer: &LocalAuthorizer{Policy: policy},
 		IsRemote:   false,
 	})
-	return NewServer("telesend", "0.1.2", "Send Telegram bot messages through MCP.", "", tools)
+	return NewServer("telesend", version.Version, "Send Telegram bot messages through MCP.", "", tools)
 }

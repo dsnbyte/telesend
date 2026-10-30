@@ -1,4 +1,4 @@
-.PHONY: all build test check clean
+.PHONY: all build test check clean release
 
 all: build
 
@@ -12,6 +12,9 @@ test:
 check:
 	go test ./...
 	go vet ./...
+
+release:
+	@./scripts/release.sh $(VERSION)
 
 clean:
 	rm -f dist/telesend

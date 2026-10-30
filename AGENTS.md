@@ -9,6 +9,7 @@ Always use Go. Run `make check` (or `go test ./... && go vet ./...`) after every
 - `make check` — full verification (tests + vet)
 - `go test ./internal/<pkg>` — single package test
 - `make build` — build standalone binary in `dist/telesend`
+- `make release VERSION=<version>` — bump version in `internal/version/version.go`, verify tests/binary, commit, and tag (or `./scripts/release.sh <version>`)
 
 ## Security Rules
 
@@ -30,6 +31,7 @@ These are hard constraints — never weaken them without explicit approval.
 ## Workflow
 
 - Always run `make build` after completing each task so `dist/telesend` stays up to date.
+- For new releases, use `make release VERSION=<version>` (or `./scripts/release.sh <version>`) on `main` to bump version, commit, and tag consistently.
 - Touch only what the task requires — no unrelated refactors or style edits.
 - Match existing patterns and style.
 - Ask when uncertain; flag simpler alternatives.
