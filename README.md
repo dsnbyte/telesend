@@ -2,15 +2,16 @@
 
 Send Telegram bot messages from your CLI, AI assistants, or any HTTP client. Self-hosted, single binary, no external dependencies.
 
-Telesend gives you three ways to send messages:
+Telesend gives you multiple ways to send and manage messages:
 
 - **CLI** — one-liner from your terminal or shell script
 - **MCP** — plug into ChatGPT, Claude.ai, Cursor, VS Code, or any MCP-compatible AI tool
 - **REST API** — integrate with your own apps, CI/CD pipelines, or webhooks
+- **Web UI** — clean browser dashboard to manage bots, aliases, test messages, view history, and export database backups
 
 ## Why Telesend?
 
-- **Let your AI send Telegram messages.** Connect ChatGPT, Codex, Claude, Cursor, Windsurf, VS Code (via Copilot/Continue), or any MCP client — then just ask it to send a message.
+- **Let your AI send Telegram messages.** Connect ChatGPT, Claude, Gemini, Codex, Cursor, Pi Code, or any MCP client — then just ask it to send a message.
 - **CI/CD notifications.** Drop the binary into GitHub Actions, GitLab CI, or Jenkins to notify your team on every build.
 - **Custom alerting.** Build alerting pipelines via the REST API — monitoring, cron jobs, webhook relays, whatever you need.
 - **Quick shell notifications.** `telesend msg text ops "done"` and you're done.
@@ -67,6 +68,25 @@ Confirm the installed version:
 telesend --version
 telesend -V
 ```
+
+### Single Binary Distribution
+
+Telesend is built and distributed as a single standalone binary. Everything—the embedded SQLite database engine, HTTP server, Remote MCP support, and Web UI—is compiled right into one self-contained executable with zero runtime dependencies. No Docker, Python, Node.js, or external database required. Just download the binary for your platform, drop it onto your system, and it is ready to run.
+
+<details>
+<summary><strong>Instant Deploy to Nibrun</strong></summary>
+
+Looking for a hassle-free, zero-config cloud deployment? You can deploy Telesend to [nibrun.com](https://nibrun.com) instantly and for free:
+
+1. Create a new app at [nibrun.com](https://nibrun.com).
+2. Point it to the Linux binary URL from the [GitHub Releases](https://github.com/dsnbyte/telesend/releases) page (e.g. `https://github.com/dsnbyte/telesend/releases/latest/download/telesend-linux-x64`).
+3. Set the following environment variables in your app settings:
+   - `TELESEND_API_KEY` — secret key for REST API authentication
+   - `TELESEND_DATA_DIR` — **must be set to `"./data"`** (ensures SQLite database and configs persist on nibrun's persistent volume)
+   - `TELESEND_MCP_PASSWORD` — password for Remote MCP connections
+   - `TELESEND_UI_PASSWORD` — password to access the Web UI
+   - `TELESEND_MCP_PUBLIC_URL` — *(optional)* can be configured after deployment finishes once you obtain your public URL from nibrun (e.g. `https://<app>.nibrun.app`)
+</details>
 
 ## Quick Start
 
@@ -407,6 +427,23 @@ curl -X POST http://127.0.0.1:3100/messages/photo \
 
 > **Note:** Always put an HTTPS reverse proxy in front of Telesend in production. Requests are limited to 52 MiB. Server filesystem paths are rejected in JSON payloads — use `file_id`, `url`, or multipart upload.
 
+## Web UI
+
+Telesend includes a built-in web dashboard to manage and test your setup visually:
+
+- **Bots & Aliases** — Add Telegram bots, map recipient aliases, and configure group thread IDs.
+- **Message Composer** — Send test messages, photos, documents, and formatted text directly from your browser.
+- **Delivery History** — Browse, filter, and inspect past message delivery logs and statuses.
+- **Database Backup & Restore** — Export your database as an SQL file or restore from a previous backup.
+
+To access the Web UI, start the server with a UI password configured:
+
+```sh
+TELESEND_UI_PASSWORD='your-secret-password' telesend serve
+```
+
+Then visit `http://127.0.0.1:3100/` in your browser.
+
 ## Data Storage
 
 By default, Telesend stores its database and configuration in a `data/` folder next to the executable (similar to PocketBase):
@@ -418,7 +455,12 @@ By default, Telesend stores its database and configuration in a `data/` folder n
 
 Set `TELESEND_DATA_DIR` in your environment to override the data folder location.
 
-Back up a running database safely:
+### Backup & Restore
+
+You can back up your database in two ways:
+
+- **Via Web UI (SQL Export):** Open the Web UI, navigate to the **Settings** panel, and click **Download SQL Export** under Database Backup & Restore. This exports a clean, portable `.sql` dump file of your database that you can save locally and re-import anytime.
+- **Via SQLite CLI:** Back up a live database safely without stopping the server:
 
 ```sh
 sqlite3 data/telesend.db ".backup data/telesend-backup.db"
