@@ -1,6 +1,6 @@
 # Telesend - Agent Guidelines
 
-Send Telegram bot messages via CLI, stdio MCP server, and authenticated REST API. Self-hosted Go application.
+Send Telegram bot messages via CLI, MCP server, and authenticated REST API. Self-hosted Go application.
 
 ## Commands
 
