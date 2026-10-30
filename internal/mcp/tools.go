@@ -24,8 +24,21 @@ func (a *LocalAuthorizer) Authorize(v any) (any, error) {
 	switch t := v.(type) {
 	case map[string]any:
 		src, ok := t["source"].(string)
+		if !ok {
+			if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+				src = "url"
+				ok = true
+			}
+		}
 		if ok && (src == "path" || src == "url" || src == "file_id") {
 			val, _ := t["value"].(string)
+			if val == "" {
+				if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+					val = durl
+				} else if u, okU := t["url"].(string); okU && u != "" {
+					val = u
+				}
+			}
 			if val == "" {
 				return nil, apperr.Newf(apperr.Validation, "MCP media source %s requires a value", src)
 			}
@@ -35,10 +48,14 @@ func (a *LocalAuthorizer) Authorize(v any) (any, error) {
 					return nil, err
 				}
 				out := maps.Clone(t)
+				out["source"] = src
 				out["value"] = canon
 				return out, nil
 			}
-			return t, nil
+			out := maps.Clone(t)
+			out["source"] = src
+			out["value"] = val
+			return out, nil
 		}
 		if ok && src == "upload" {
 			return nil, apperr.New(apperr.Validation, "MCP media source must be path, url, or file_id")
@@ -74,6 +91,12 @@ func (RemoteAuthorizer) Authorize(v any) (any, error) {
 	switch t := v.(type) {
 	case map[string]any:
 		src, ok := t["source"].(string)
+		if !ok {
+			if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+				src = "url"
+				ok = true
+			}
+		}
 		if ok && (src == "path" || src == "url" || src == "file_id" || src == "upload") {
 			if src == "path" {
 				return nil, apperr.New(apperr.FilesystemPolicy,
@@ -81,13 +104,23 @@ func (RemoteAuthorizer) Authorize(v any) (any, error) {
 			}
 			if src != "url" && src != "file_id" {
 				return nil, apperr.New(apperr.Validation,
-					"Remote MCP media must use a public URL or Telegram file_id; chat attachments and generated files cannot be uploaded directly")
+					"Remote MCP media must use a media URL or Telegram file_id")
 			}
 			val, _ := t["value"].(string)
 			if val == "" {
+				if durl, okDurl := t["download_url"].(string); okDurl && durl != "" {
+					val = durl
+				} else if u, okU := t["url"].(string); okU && u != "" {
+					val = u
+				}
+			}
+			if val == "" {
 				return nil, apperr.Newf(apperr.Validation, "MCP media source %s requires a value", src)
 			}
-			return t, nil
+			out := maps.Clone(t)
+			out["source"] = src
+			out["value"] = val
+			return out, nil
 		}
 		out := make(map[string]any, len(t))
 		for k, val := range t {
@@ -150,21 +183,23 @@ func mediaSourceSchema(allowURL, allowPath bool) M {
 	}
 	sources = append(sources, "file_id")
 
-	desc := "Use a policy-approved path, a public URL where supported, or a Telegram file_id."
+	desc := "Use a policy-approved path, a media URL (including ChatGPT/Gemini generated URLs), or a Telegram file_id."
 	if !allowPath {
 		if allowURL {
-			desc = "Use a public HTTPS URL reachable by Telegram or a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP."
+			desc = "Use a direct media URL (including ChatGPT/Gemini generated image/video URLs) or a Telegram file_id."
 		} else {
-			desc = "Use a Telegram file_id. Chat attachments and generated files cannot be uploaded directly through remote MCP."
+			desc = "Use a Telegram file_id."
 		}
 	}
 	return M{
 		"type": "object",
 		"properties": M{
-			"source": enum(desc, sources...),
-			"value":  str(desc),
+			"source":       enum(desc, sources...),
+			"value":        str(desc),
+			"download_url": strAny("Alternative URL field used by ChatGPT/AI file metadata."),
+			"filename":     strAny("Optional filename for the media attachment."),
 		},
-		"required":             []string{"source", "value"},
+		"required":             []string{"source"},
 		"additionalProperties": true,
 	}
 }

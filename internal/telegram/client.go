@@ -20,13 +20,18 @@ import (
 
 // Client calls the Telegram Bot API.
 type Client struct {
-	HTTP    *http.Client
-	BaseURL string
+	HTTP         *http.Client
+	BaseURL      string
+	MediaFetcher *MediaFetcher
 }
 
 // NewClient returns a client for the public Bot API.
 func NewClient() *Client {
-	return &Client{HTTP: &http.Client{Timeout: 5 * time.Minute}, BaseURL: "https://api.telegram.org"}
+	return &Client{
+		HTTP:         &http.Client{Timeout: 5 * time.Minute},
+		BaseURL:      "https://api.telegram.org",
+		MediaFetcher: NewMediaFetcher(false),
+	}
 }
 
 // User is the subset of the Telegram User object Telesend needs.
@@ -69,10 +74,14 @@ type envelope struct {
 }
 
 // Call invokes a Bot API method. Media sources inside payload are resolved:
-// file_id and url values are inlined; path and upload values are sent as
+// file_id values are inlined; url, path and upload values are sent as
 // multipart attachments.
 func (c *Client) Call(ctx context.Context, token, method string, payload map[string]any) (json.RawMessage, error) {
-	m := &materializer{}
+	fetcher := c.MediaFetcher
+	if fetcher == nil {
+		fetcher = NewMediaFetcher(false)
+	}
+	m := &materializer{ctx: ctx, fetcher: fetcher, method: method}
 	defer m.close()
 	body, err := m.walk(payload)
 	if err != nil {
@@ -164,6 +173,9 @@ func writeMultipart(mw *multipart.Writer, fields map[string]any, files []attachm
 }
 
 type materializer struct {
+	ctx     context.Context
+	fetcher *MediaFetcher
+	method  string
 	files   []attachment
 	closers []io.Closer
 }
@@ -216,6 +228,9 @@ func MediaSourceOf(obj map[string]any) (string, bool) {
 	case "file_id", "url", "path", "upload":
 		return src, true
 	}
+	if durl, ok := obj["download_url"].(string); ok && durl != "" {
+		return "url", true
+	}
 	return "", false
 }
 
@@ -227,12 +242,41 @@ type Upload interface {
 
 func (m *materializer) media(src string, obj map[string]any) (any, error) {
 	value, _ := obj["value"].(string)
+	if value == "" {
+		if durl, ok := obj["download_url"].(string); ok && durl != "" {
+			value = durl
+		} else if u, ok := obj["url"].(string); ok && u != "" {
+			value = u
+		}
+	}
 	switch src {
-	case "file_id", "url":
+	case "file_id":
 		if value == "" {
 			return nil, apperr.Newf(apperr.Validation, "Media source %s requires a value", src)
 		}
 		return value, nil
+	case "url":
+		if value == "" {
+			return nil, apperr.Newf(apperr.Validation, "Media source %s requires a value", src)
+		}
+		maxSize := m.fetcher.MaxMediaSizeBytes
+		if m.method == "sendPhoto" || obj["type"] == "photo" {
+			maxSize = m.fetcher.MaxPhotoSizeBytes
+		}
+		data, inferredFilename, _, err := m.fetcher.Fetch(m.ctx, value, maxSize)
+		if err != nil {
+			return nil, err
+		}
+		filename := inferredFilename
+		if customName, ok := obj["filename"].(string); ok && customName != "" {
+			filename = customName
+		} else if customName, ok := obj["name"].(string); ok && customName != "" {
+			filename = customName
+		}
+		reader := bytes.NewReader(data)
+		name := fmt.Sprintf("attachment_%d", len(m.files))
+		m.files = append(m.files, attachment{field: name, filename: filename, reader: reader})
+		return "attach://" + name, nil
 	}
 	var reader io.ReadCloser
 	var filename string

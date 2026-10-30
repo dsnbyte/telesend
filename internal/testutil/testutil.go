@@ -119,6 +119,9 @@ func NewApp(tb testing.TB) (*app.App, *Telegram) {
 	tg := NewTelegram(tb)
 	client := telegram.NewClient()
 	client.BaseURL = tg.URL
+	if client.MediaFetcher != nil {
+		client.MediaFetcher.AllowLocalhost = true
+	}
 	a, err := app.New(":memory:", client)
 	if err != nil {
 		tb.Fatal(err)

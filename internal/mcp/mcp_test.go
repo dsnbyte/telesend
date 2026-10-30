@@ -553,3 +553,90 @@ func TestMethodDocsBotAPI103(t *testing.T) {
 	}
 }
 
+func TestMCPSendMediaURL(t *testing.T) {
+	a, tg := testutil.WithBot(t)
+	cwd := t.TempDir()
+	policy, err := mcp.NewFilePolicy(mcp.FilePolicyOptions{
+		CWD: cwd,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mediaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write([]byte("image-data"))
+	}))
+	defer mediaServer.Close()
+
+	// 1. Stdio (LocalAuthorizer) with source: url and value
+	localTools := mcp.BuildTools(a, mcp.ToolOptions{
+		CanRead:    true,
+		CanSend:    true,
+		Authorizer: &mcp.LocalAuthorizer{Policy: policy},
+		IsRemote:   false,
+	})
+	server := mcp.NewServer("telesend", "test", "test", "", localTools)
+
+	call1 := server.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 1,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"payload": {
+					"type": "photo",
+					"file": {
+						"source": "url",
+						"value": "`+mediaServer.URL+`/pic1.png"
+					}
+				}
+			}
+		}
+	}`))
+	if strings.Contains(string(call1), `"isError":true`) {
+		t.Fatalf("call1 error: %s", string(call1))
+	}
+	if len(tg.Calls()) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(tg.Calls()))
+	}
+
+	// 2. Remote (RemoteAuthorizer) with ChatGPT download_url
+	remoteTools := mcp.BuildTools(a, mcp.ToolOptions{
+		CanRead:    true,
+		CanSend:    true,
+		Authorizer: mcp.RemoteAuthorizer{},
+		IsRemote:   true,
+	})
+	remoteServer := mcp.NewServer("telesend", "test", "test", "", remoteTools)
+
+	call2 := remoteServer.Handle(context.Background(), []byte(`{
+		"jsonrpc": "2.0",
+		"id": 2,
+		"method": "tools/call",
+		"params": {
+			"name": "send_media",
+			"arguments": {
+				"to": "123",
+				"payload": {
+					"type": "photo",
+					"file": {
+						"source": "url",
+						"download_url": "`+mediaServer.URL+`/pic2.png",
+						"filename": "generated.png"
+					}
+				}
+			}
+		}
+	}`))
+	if strings.Contains(string(call2), `"isError":true`) {
+		t.Fatalf("call2 error: %s", string(call2))
+	}
+	if len(tg.Calls()) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(tg.Calls()))
+	}
+}
+
+

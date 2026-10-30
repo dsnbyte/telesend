@@ -417,6 +417,13 @@ func validateMedia(v any, allowURL bool, key string) error {
 			return nil
 		}
 		value, _ := t["value"].(string)
+		if value == "" {
+			if durl, ok := t["download_url"].(string); ok && durl != "" {
+				value = durl
+			} else if u, ok := t["url"].(string); ok && u != "" {
+				value = u
+			}
+		}
 		switch {
 		case src == "url" && !allowURL:
 			return apperr.New(apperr.Validation, "URL media is not supported for this message type")
