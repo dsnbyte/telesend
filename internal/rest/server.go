@@ -256,12 +256,17 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) error {
 					offset = n
 				}
 			}
+			searchQuery := q.Get("q")
+			if searchQuery == "" {
+				searchQuery = q.Get("search")
+			}
 			entries, err := s.app.History.List(store.HistoryFilter{
 				Limit:       limit,
 				Offset:      offset,
 				MessageType: q.Get("type"),
 				Bot:         q.Get("bot"),
 				Recipient:   q.Get("recipient"),
+				Query:       searchQuery,
 			})
 			if err != nil {
 				return err

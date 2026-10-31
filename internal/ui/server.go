@@ -470,13 +470,19 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) error
 			offset = n
 		}
 	}
-	entries, err := s.app.History.List(store.HistoryFilter{
+	searchQuery := q.Get("q")
+	if searchQuery == "" {
+		searchQuery = q.Get("search")
+	}
+	filter := store.HistoryFilter{
 		Limit:       limit,
 		Offset:      offset,
 		MessageType: q.Get("type"),
 		Bot:         q.Get("bot"),
 		Recipient:   q.Get("recipient"),
-	})
+		Query:       searchQuery,
+	}
+	entries, err := s.app.History.List(filter)
 	if err != nil {
 		return err
 	}
@@ -484,12 +490,17 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) error
 		entries = []store.HistoryEntry{}
 	}
 	total, _ := s.app.History.Count()
+	filteredTotal := total
+	if filter.MessageType != "" || filter.Bot != "" || filter.Recipient != "" || filter.Query != "" {
+		filteredTotal, _ = s.app.History.CountFiltered(filter)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data":          entries,
 		"total":         total,
+		"filteredTotal": filteredTotal,
 		"pageSize":      limit,
 		"offset":        offset,
-		"hasMore":       len(entries) == limit,
+		"hasMore":       (offset + len(entries)) < filteredTotal,
 		"retentionDays": s.app.History.RetentionDays(),
 	})
 	return nil

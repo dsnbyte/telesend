@@ -108,6 +108,18 @@ func TestHistory(t *testing.T) {
 		t.Fatalf("expected 1 item for alice, got %d", len(listRcpt))
 	}
 
+	// Filter by query (database search)
+	listQuery, err := hist.List(HistoryFilter{Query: "chart"})
+	if err != nil || len(listQuery) != 1 || listQuery[0].ID != rec2.ID {
+		t.Fatalf("expected 1 item for query 'chart', got %d", len(listQuery))
+	}
+
+	// CountFiltered with query
+	filterCnt, err := hist.CountFiltered(HistoryFilter{Query: "chart"})
+	if err != nil || filterCnt != 1 {
+		t.Fatalf("expected CountFiltered 1 for 'chart', got %d", filterCnt)
+	}
+
 	// Delete one
 	ok, err := hist.Delete(rec.ID)
 	if err != nil || !ok {

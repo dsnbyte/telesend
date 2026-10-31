@@ -403,6 +403,7 @@ label {
 }
 
 input[type="text"],
+input[type="search"],
 input[type="password"],
 input[type="number"],
 select,
@@ -1394,6 +1395,54 @@ textarea {
   color: var(--text);
   margin-top: 2px;
   word-break: break-word;
+}
+
+.history-doc-inline {
+  margin-top: 3px;
+}
+
+.history-doc-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.history-doc-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.history-photo-thumb-wrap {
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
+.history-photo-thumb {
+  max-height: 90px;
+  max-width: 160px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.05);
+  display: block;
+}
+
+.history-media-note,
+.tg-chatgpt-note {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+  padding: 2px 0;
+}
+
+.history-load-more-container {
+  margin-top: 20px;
+  margin-bottom: 12px;
+  text-align: center;
 }
 
 .payload-pre {

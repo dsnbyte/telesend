@@ -1099,6 +1099,132 @@
   let historyHasMore = false;
   let historyLoading = false;
 
+  // ChatGPT & Media Preview Helpers
+  function isChatGPTMedia(url, p, item) {
+    if (p) {
+      if (p.download_url) return true;
+      if (p._meta && p._meta['openai/fileParams']) return true;
+      if (p.photo && typeof p.photo === 'object') {
+        if (p.photo.download_url || p.photo.source === 'download_url') return true;
+      }
+    }
+    const checkStr = `${url || ''} ${item?.summary || ''} ${(p && typeof p.photo === 'string') ? p.photo : ''} ${(p?.photo?.value) || ''}`.toLowerCase();
+    if (
+      checkStr.includes('oaiusercontent.com') ||
+      checkStr.includes('openai.com') ||
+      checkStr.includes('chatgpt.com') ||
+      checkStr.includes('oaidalleapiprodscus')
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function getPhotoUrl(p, item) {
+    if (p && p.photo) {
+      if (typeof p.photo === 'string') {
+        if (p.photo.startsWith('http://') || p.photo.startsWith('https://')) {
+          return p.photo;
+        }
+      } else if (typeof p.photo === 'object') {
+        const val = p.photo.value || p.photo.url || p.photo.download_url || '';
+        if (typeof val === 'string' && (val.startsWith('http://') || val.startsWith('https://'))) {
+          return val;
+        }
+      }
+    }
+    if (p && p.download_url && typeof p.download_url === 'string' && (p.download_url.startsWith('http://') || p.download_url.startsWith('https://'))) {
+      return p.download_url;
+    }
+    if (item && item.summary) {
+      const m = item.summary.match(/\((?:url|download_url):\s*(https?:\/\/[^\)]+)\)/i);
+      if (m) return m[1].trim();
+      if (item.summary.startsWith('http://') || item.summary.startsWith('https://')) {
+        return item.summary.trim();
+      }
+    }
+    return '';
+  }
+
+  function parseDocumentInfo(item, p) {
+    let raw = '';
+    let filename = '';
+
+    if (p && p.document) {
+      if (typeof p.document === 'string') {
+        raw = p.document;
+      } else if (typeof p.document === 'object') {
+        if (p.document.filename) filename = p.document.filename;
+        if (p.document.value) raw = p.document.value;
+      }
+    }
+
+    if (!raw && item && item.summary) {
+      raw = item.summary;
+    }
+
+    if (raw) {
+      let cleaned = raw.trim();
+      const m = cleaned.match(/\((?:url|file|upload|source):\s*([^\)]+)\)/i);
+      if (m) {
+        cleaned = m[1].trim();
+      }
+      if (!filename) {
+        if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+          try {
+            const u = new URL(cleaned);
+            const parts = u.pathname.split('/').filter(Boolean);
+            if (parts.length > 0) {
+              filename = decodeURIComponent(parts[parts.length - 1]);
+            }
+          } catch (_) {}
+        }
+        if (!filename) {
+          const parts = cleaned.split(/[/\\]/).filter(Boolean);
+          if (parts.length > 0) {
+            filename = parts[parts.length - 1];
+          } else {
+            filename = cleaned;
+          }
+        }
+      }
+    }
+
+    if (!filename) {
+      filename = 'Document';
+    }
+
+    let meta = 'Telegram Document';
+    const extMatch = filename.match(/\.([a-zA-Z0-9]+)(?:[?#].*)?$/);
+    if (extMatch) {
+      const ext = extMatch[1].toUpperCase();
+      const typeMap = {
+        'PDF': 'PDF Document',
+        'DOC': 'Word Document',
+        'DOCX': 'Word Document',
+        'XLS': 'Excel Spreadsheet',
+        'XLSX': 'Excel Spreadsheet',
+        'PPT': 'PowerPoint Presentation',
+        'PPTX': 'PowerPoint Presentation',
+        'TXT': 'Text Document',
+        'CSV': 'CSV Document',
+        'ZIP': 'ZIP Archive',
+        'RAR': 'RAR Archive',
+        '7Z': '7Z Archive',
+        'TAR': 'TAR Archive',
+        'GZ': 'GZ Archive',
+        'JSON': 'JSON Document',
+        'XML': 'XML Document',
+        'MD': 'Markdown Document',
+        'HTML': 'HTML Document',
+        'EPUB': 'EPUB eBook'
+      };
+      meta = typeMap[ext] || `${ext} Document`;
+    }
+
+    return { filename, meta };
+  }
+
   async function loadHistory(append = false) {
     if (historyLoading) return;
     historyLoading = true;
@@ -1112,8 +1238,17 @@
       loadMoreBtn.textContent = 'Loading...';
     }
 
+    const typeFilter = (document.getElementById('history-type-filter')?.value || '').toLowerCase().trim();
+    const search = (document.getElementById('history-search-input')?.value || '').trim();
+
     try {
-      const res = await apiCall(`/history?offset=${offset}&limit=${historyPageSize}`);
+      const params = new URLSearchParams();
+      params.set('offset', String(offset));
+      params.set('limit', String(historyPageSize));
+      if (typeFilter) params.set('type', typeFilter);
+      if (search) params.set('q', search);
+
+      const res = await apiCall(`/history?${params.toString()}`);
       const newItems = res.data || [];
       if (res.pageSize) {
         historyPageSize = res.pageSize;
@@ -1166,31 +1301,70 @@
     const listEl = document.getElementById('history-list');
     if (!listEl) return;
 
-    const typeFilter = (document.getElementById('history-type-filter').value || '').toLowerCase();
-    const search = (document.getElementById('history-search-input').value || '').toLowerCase().trim();
+    const typeFilter = (document.getElementById('history-type-filter')?.value || '').trim();
+    const search = (document.getElementById('history-search-input')?.value || '').trim();
 
-    const filtered = historyList.filter((item) => {
-      if (typeFilter && item.messageType !== typeFilter) return false;
-      if (search) {
-        const matchBot = (item.bot || '').toLowerCase().includes(search);
-        const matchRcpt = (item.recipient || '').toLowerCase().includes(search);
-        const matchChat = (item.chatId || '').toLowerCase().includes(search);
-        const matchSummary = (item.summary || '').toLowerCase().includes(search);
-        if (!matchBot && !matchRcpt && !matchChat && !matchSummary) return false;
-      }
-      return true;
-    });
-
-    if (filtered.length === 0) {
+    if (historyList.length === 0) {
       listEl.innerHTML = `
         <div class="empty-state">
-          ${historyList.length === 0 ? 'No message delivery history yet.' : 'No history matches the selected filters.'}
+          ${(typeFilter || search) ? 'No history matches the selected filters.' : 'No message delivery history yet.'}
         </div>`;
       return;
     }
 
-    listEl.innerHTML = filtered.map((item) => {
+    listEl.innerHTML = historyList.map((item) => {
       const timeStr = formatDateTime(item.createdAt);
+      let p = {};
+      if (item.payload) {
+        try {
+          p = typeof item.payload === 'string' ? JSON.parse(item.payload) : item.payload;
+        } catch (_) {}
+      }
+
+      const type = item.messageType || 'text';
+      const caption = (p && p.caption) ? String(p.caption).trim() : '';
+
+      let bodyHtml = '';
+      if (type === 'document') {
+        if (caption) {
+          bodyHtml = `<div class="history-summary">${escapeHtml(caption)}</div>`;
+        } else {
+          const docInfo = parseDocumentInfo(item, p);
+          bodyHtml = `
+            <div class="history-doc-inline">
+              <div class="history-doc-title">${escapeHtml(docInfo.filename)}</div>
+              <div class="history-doc-meta">${escapeHtml(docInfo.meta)}</div>
+            </div>`;
+        }
+      } else if (type === 'photo') {
+        const photoUrl = getPhotoUrl(p, item);
+        const isChatGPT = isChatGPTMedia(photoUrl, p, item);
+
+        if (isChatGPT) {
+          bodyHtml = `
+            <div class="history-media-note">Unable to display image</div>
+            ${caption ? `<div class="history-summary" style="margin-top: 4px;">${escapeHtml(caption)}</div>` : ''}`;
+        } else if (photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))) {
+          bodyHtml = `
+            <div class="history-photo-thumb-wrap">
+              <img src="${escapeHtml(photoUrl)}" alt="Photo preview" class="history-photo-thumb" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'history-media-note\\'>Unable to display image</div>';">
+            </div>
+            ${caption ? `<div class="history-summary" style="margin-top: 4px;">${escapeHtml(caption)}</div>` : ''}`;
+        } else {
+          if (caption) {
+            bodyHtml = `<div class="history-summary">${escapeHtml(caption)}</div>`;
+          } else {
+            let label = '';
+            if (p && p.photo) {
+              if (typeof p.photo === 'string') label = p.photo;
+              else label = p.photo.filename || p.photo.value || '';
+            }
+            bodyHtml = `<div class="history-summary">${escapeHtml(label || item.summary || 'Photo Attachment')}</div>`;
+          }
+        }
+      } else {
+        bodyHtml = `<div class="history-summary">${escapeHtml(item.summary || '')}</div>`;
+      }
 
       return `
         <div class="item-row history-item-row" data-id="${item.id}">
@@ -1203,9 +1377,7 @@
               <span class="code-font text-xs">${escapeHtml(item.recipient)}</span>
               ${item.messageThreadId ? `<span class="badge badge-subtle text-xs">#${item.messageThreadId}</span>` : ''}
             </div>
-            <div class="history-summary">
-              ${escapeHtml(item.summary || '')}
-            </div>
+            ${bodyHtml}
             <div class="item-subtitle text-xs text-muted" style="margin-top: 4px;">
               <span>${escapeHtml(timeStr)}</span>
               ${item.messageId ? ` &bull; Msg ID: <span class="code-font">${item.messageId}</span>` : ''}
@@ -1447,14 +1619,28 @@
   const historyTypeFilter = document.getElementById('history-type-filter');
   if (historyTypeFilter) {
     historyTypeFilter.addEventListener('change', () => {
-      renderHistory();
+      loadHistory(false);
     });
   }
 
+  let searchDebounceTimer = null;
   const historySearchInput = document.getElementById('history-search-input');
   if (historySearchInput) {
     historySearchInput.addEventListener('input', () => {
-      renderHistory();
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        loadHistory(false);
+      }, 300);
+    });
+    historySearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        clearTimeout(searchDebounceTimer);
+        loadHistory(false);
+      }
+    });
+    historySearchInput.addEventListener('search', () => {
+      clearTimeout(searchDebounceTimer);
+      loadHistory(false);
     });
   }
 
@@ -1533,17 +1719,11 @@
     }
 
     if (type === 'photo') {
-      let photoUrl = '';
+      let photoUrl = getPhotoUrl(p, entry);
       let photoLabel = '';
-      if (p && p.photo) {
+      if (!photoUrl && p && p.photo) {
         if (typeof p.photo === 'string') {
-          if (p.photo.startsWith('http://') || p.photo.startsWith('https://')) {
-            photoUrl = p.photo;
-          } else {
-            photoLabel = p.photo;
-          }
-        } else if (p.photo.value && (p.photo.value.startsWith('http://') || p.photo.value.startsWith('https://'))) {
-          photoUrl = p.photo.value;
+          photoLabel = p.photo;
         } else if (p.photo.filename) {
           photoLabel = p.photo.filename;
         } else if (p.photo.value) {
@@ -1553,11 +1733,18 @@
       const caption = p && p.caption;
       const parseMode = p && p.parse_mode;
 
+      if (isChatGPTMedia(photoUrl, p, entry)) {
+        return `
+          <div class="tg-chatgpt-note">Unable to display image</div>
+          ${caption ? `<div class="tg-caption">${formatTelegramText(caption, parseMode)}</div>` : ''}
+        `;
+      }
+
       let mediaHtml = '';
       if (photoUrl) {
         mediaHtml = `
           <div class="tg-photo-wrap">
-            <img src="${escapeHtml(photoUrl)}" alt="Photo preview" class="tg-photo-preview" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'tg-media-file\\'><span class=\\'tg-media-icon\\'>🖼</span><span>Photo: ${escapeHtml(photoUrl)}</span></div>';">
+            <img src="${escapeHtml(photoUrl)}" alt="Photo preview" class="tg-photo-preview" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'tg-chatgpt-note\\'>Unable to display image</div>';">
           </div>
         `;
       } else {
@@ -1576,18 +1763,14 @@
     }
 
     if (type === 'document') {
-      let docName = '';
-      if (p && p.document) {
-        if (typeof p.document === 'string') docName = p.document;
-        else docName = p.document.filename || p.document.value || '';
-      }
+      const docInfo = parseDocumentInfo(entry, p);
       const caption = p && p.caption;
       return `
         <div class="tg-media-file">
           <span class="tg-media-icon">📄</span>
           <div class="tg-doc-info">
-            <strong>${escapeHtml(docName || entry.summary || 'Document')}</strong>
-            <span class="text-muted text-xs">Telegram Document</span>
+            <strong>${escapeHtml(docInfo.filename)}</strong>
+            <span class="text-muted text-xs">${escapeHtml(docInfo.meta)}</span>
           </div>
         </div>
         ${caption ? `<div class="tg-caption">${formatTelegramText(caption, p && p.parse_mode)}</div>` : ''}

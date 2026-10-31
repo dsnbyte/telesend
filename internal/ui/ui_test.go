@@ -697,6 +697,31 @@ func TestHistoryPaginationAndConfig(t *testing.T) {
 	if page3.HasMore {
 		t.Fatal("expected hasMore to be false on page 3")
 	}
+
+	// Fetch with database search query
+	res, data = doReq(http.MethodGet, "/api/ui/history?q=message+3", nil)
+	var searchRes struct {
+		Data          []store.HistoryEntry `json:"data"`
+		Total         int                  `json:"total"`
+		FilteredTotal int                  `json:"filteredTotal"`
+		HasMore       bool                 `json:"hasMore"`
+	}
+	_ = json.Unmarshal(data, &searchRes)
+	if len(searchRes.Data) != 1 {
+		t.Fatalf("expected 1 entry for search 'message 3', got %d", len(searchRes.Data))
+	}
+	if searchRes.Data[0].Summary != "message 3" {
+		t.Fatalf("expected 'message 3', got %q", searchRes.Data[0].Summary)
+	}
+	if searchRes.FilteredTotal != 1 {
+		t.Fatalf("expected filteredTotal 1, got %d", searchRes.FilteredTotal)
+	}
+	if searchRes.Total != 5 {
+		t.Fatalf("expected overall total 5, got %d", searchRes.Total)
+	}
+	if searchRes.HasMore {
+		t.Fatal("expected hasMore to be false for single search result")
+	}
 }
 
 func TestDatabaseExportAndImportAPI(t *testing.T) {

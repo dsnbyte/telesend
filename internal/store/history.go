@@ -28,6 +28,7 @@ type HistoryFilter struct {
 	Bot         string
 	Recipient   string
 	MessageType string
+	Query       string
 	Limit       int
 	Offset      int
 }
@@ -102,12 +103,7 @@ func (h *History) Record(entry HistoryEntry) (*HistoryEntry, error) {
 	return &entry, nil
 }
 
-// List returns delivery history matching the filter, ordered newest first.
-// It also triggers opportunistic pruning.
-func (h *History) List(filter HistoryFilter) ([]HistoryEntry, error) {
-	// Opportunistic pruning on read
-	_, _ = h.Prune(time.Now().UTC())
-
+func (h *History) buildFilter(filter HistoryFilter) (string, []any) {
 	var conditions []string
 	var args []any
 
@@ -123,11 +119,25 @@ func (h *History) List(filter HistoryFilter) ([]HistoryEntry, error) {
 		conditions = append(conditions, "message_type = ?")
 		args = append(args, filter.MessageType)
 	}
-
-	where := ""
-	if len(conditions) > 0 {
-		where = " WHERE " + strings.Join(conditions, " AND ")
+	if q := strings.TrimSpace(filter.Query); q != "" {
+		like := "%" + q + "%"
+		conditions = append(conditions, "(bot LIKE ? OR recipient LIKE ? OR chat_id LIKE ? OR summary LIKE ? OR payload LIKE ?)")
+		args = append(args, like, like, like, like, like)
 	}
+
+	if len(conditions) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), args
+}
+
+// List returns delivery history matching the filter, ordered newest first.
+// It also triggers opportunistic pruning.
+func (h *History) List(filter HistoryFilter) ([]HistoryEntry, error) {
+	// Opportunistic pruning on read
+	_, _ = h.Prune(time.Now().UTC())
+
+	where, args := h.buildFilter(filter)
 
 	limit := filter.Limit
 	if limit <= 0 {
@@ -258,5 +268,13 @@ func (h *History) Clear() (int64, error) {
 func (h *History) Count() (int, error) {
 	var count int
 	err := h.db.QueryRow("SELECT COUNT(*) FROM message_history").Scan(&count)
+	return count, err
+}
+
+// CountFiltered returns the number of history records matching filter.
+func (h *History) CountFiltered(filter HistoryFilter) (int, error) {
+	where, args := h.buildFilter(filter)
+	var count int
+	err := h.db.QueryRow("SELECT COUNT(*) FROM message_history"+where, args...).Scan(&count)
 	return count, err
 }
